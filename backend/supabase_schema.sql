@@ -83,3 +83,11 @@ CREATE TABLE IF NOT EXISTS budgets (
 CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, transaction_date DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_code);
 CREATE INDEX IF NOT EXISTS idx_wallets_user ON wallets(user_id);
+
+-- Cho phép Backend Node.js đọc và ghi dữ liệu tự do (Disable RLS)
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE budgets DISABLE ROW LEVEL SECURITY;
+
