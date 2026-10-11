@@ -1,0 +1,25 @@
+# PyTorch với hỗ trợ GPU CUDA (Khuyến nghị cài theo lệnh riêng từ pytorch.org)
+# torch
+# torchvision
+# torchaudio
+
+# Thư viện NLP & Deep Learning
+transformers>=4.36.0
+accelerate>=0.25.0
+huggingface-hub>=0.20.0
+pyvi>=0.1.1
+
+# Xử lý dữ liệu & Machine Learning
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# Trực quan hóa & Báo cáo
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# API Service
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6

@@ -1,0 +1,5 @@
+MÔ HÌNH DỰ BÁO CHI TIÊU LSTM (7 NGÀY)
+MAE: 5,493,266.50 VND
+RMSE: 6,935,905.39 VND
+Sequence Length (Input): 30 ngay
+Forecast Horizon (Output): 7 ngay

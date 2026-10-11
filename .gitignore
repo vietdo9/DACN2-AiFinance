@@ -1,0 +1,41 @@
+# Python & Virtual Environments
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# Large AI Weights (>100MB violates GitHub limits)
+*.safetensors
+*.bin
+models/phobert_classifier/*.safetensors
+models/phobert_classifier/*.bin
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment Variables & Secrets
+.env
+.env.local
+
+# Flutter & Dart
+**/doc/api/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.idea/
+.vscode/
+
+# Windows & OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
