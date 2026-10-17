@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/forecast_model.dart';
 import '../services/api_service.dart';
+import 'add_transaction_screen.dart';
 
 class AiForecastScreen extends StatefulWidget {
   const AiForecastScreen({super.key});
@@ -15,6 +16,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   final currencyFormat = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
   bool _isLoading = true;
   ForecastModel? _forecast;
+  bool _isDemoMode = false;
 
   @override
   void initState() {
@@ -22,9 +24,14 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     _loadForecast();
   }
 
-  Future<void> _loadForecast() async {
-    setState(() => _isLoading = true);
-    final data = await ApiService().getAiForecast();
+  Future<void> _loadForecast({bool isDemo = false}) async {
+    setState(() {
+      _isLoading = true;
+      _isDemoMode = isDemo;
+    });
+
+    final data = await ApiService().getAiForecast(isDemo: isDemo);
+
     if (mounted) {
       setState(() {
         _forecast = data;
@@ -44,27 +51,39 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
             children: [
               CircularProgressIndicator(color: Color(0xFF4F46E5)),
               SizedBox(height: 16),
-              Text('Mạng LSTM đang tính toán dòng tiền...', style: TextStyle(color: Color(0xFF64748B))),
+              Text(
+                'Mạng nơ-ron LSTM đang phân tích chuỗi thời gian...',
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+              ),
             ],
           ),
         ),
       );
     }
 
-    final forecast = _forecast!;
+    final forecast = _forecast ?? ForecastModel.empty();
+
+    // Nếu tài khoản mới chưa có dữ liệu và không ở chế độ Demo
+    if (!forecast.hasEnoughData && !_isDemoMode) {
+      return _buildEmptyState();
+    }
+
     final warningColor = _getWarningColor(forecast.warningLevel);
     final warningText = _getWarningText(forecast.warningLevel);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Dự Báo Chi Tiêu AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1E293B))),
+        title: const Text(
+          'Dự Báo Chi Tiêu AI',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1E293B)),
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
-            onPressed: _loadForecast,
+            onPressed: () => _loadForecast(isDemo: _isDemoMode),
           ),
         ],
       ),
@@ -73,13 +92,43 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Banner báo hiệu nếu đang xem dữ liệu mô phỏng
+            if (_isDemoMode || forecast.isDemoData) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFCD34D)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.science_outlined, color: Color(0xFFD97706), size: 20),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Đang xem mô phỏng thử nghiệm AI (Demo). Dữ liệu này không ảnh hưởng đến số dư thật.',
+                        style: TextStyle(color: Color(0xFF92400E), fontSize: 12),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _loadForecast(isDemo: false),
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                      child: const Text('Thoát Demo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             // 1. Thẻ Cảnh Báo Rủi Ro Ngân Sách
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: warningColor.withOpacity(0.08),
+                color: warningColor.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: warningColor.withOpacity(0.3)),
+                border: Border.all(color: warningColor.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -136,7 +185,13 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2))],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,7 +213,13 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2))],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,15 +239,24 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
 
             const SizedBox(height: 24),
 
-            // 3. Biểu Đồ Đường Dự Báo 7 Ngày (LineChart - fl_chart)
-            const Text('Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+            // 3. Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo
+            const Text(
+              'Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+            ),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.fromLTRB(16, 24, 20, 16),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(18),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  )
+                ],
               ),
               child: SizedBox(
                 height: 220,
@@ -239,7 +309,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                         dotData: const FlDotData(show: true),
                         belowBarData: BarAreaData(
                           show: true,
-                          color: const Color(0xFF4F46E5).withOpacity(0.12),
+                          color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
                         ),
                       ),
                     ],
@@ -251,7 +321,10 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
             const SizedBox(height: 24),
 
             // 4. Danh Sách Chi Tiết Từng Ngày
-            const Text('Chi Tiết Từng Ngày', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+            const Text(
+              'Chi Tiết Từng Ngày',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+            ),
             const SizedBox(height: 12),
             Column(
               children: List.generate(forecast.predictedNext7Days.length, (i) {
@@ -293,6 +366,142 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
               }),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // Màn hình Empty State khi tài khoản mới toanh chưa có chi tiêu
+  Widget _buildEmptyState() {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text('Dự Báo Chi Tiêu AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1E293B))),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
+            onPressed: () => _loadForecast(isDemo: false),
+          ),
+        ],
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFEEF2FF), Color(0xFFE0E7FF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5), size: 48),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Tài Khoản Mới Đang Chờ Dữ Liệu',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Mô hình AI (LSTM) của FinWise phân tích chuỗi thời gian độc lập cho từng tài khoản riêng biệt. Bạn chưa có giao dịch chi tiêu nào để AI phân tích thói quen dòng tiền.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.5),
+              ),
+              const SizedBox(height: 28),
+
+              // Thẻ lợi ích
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 2))
+                  ],
+                ),
+                child: const Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.lock_outline, color: Color(0xFF10B981), size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text('Dữ liệu phân tích hoàn toàn riêng tư cho tài khoản của bạn', style: TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(Icons.electric_bolt_outlined, color: Color(0xFFF59E0B), size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text('AI tự động học sau mỗi lần bạn thêm chi tiêu mới', style: TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              // Nút thêm giao dịch đầu tiên
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AddTransactionScreen()),
+                    );
+                    _loadForecast();
+                  },
+                  icon: const Icon(Icons.add_circle_outline, size: 20),
+                  label: const Text('Thêm Giao Dịch Đầu Tiên', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Nút xem demo mô phỏng cho thuyết trình đồ án
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: OutlinedButton.icon(
+                  onPressed: () => _loadForecast(isDemo: true),
+                  icon: const Icon(Icons.science_outlined, size: 18, color: Color(0xFF64748B)),
+                  label: const Text(
+                    'Xem Thử Nghiệm Mô Phỏng AI (Demo)',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

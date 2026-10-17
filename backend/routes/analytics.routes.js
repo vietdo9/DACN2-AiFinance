@@ -2,65 +2,87 @@ const express = require('express');
 const router = express.Router();
 const { supabase, isSupabaseConfigured } = require('../config/supabase');
 const { verifyToken } = require('../middlewares/auth');
+const localStore = require('../config/localStore');
 
-// Lấy số liệu thống kê tổng quan (Dashboard Summary)
+const CATEGORY_NAMES = {
+    'AN_UONG': { name: 'Ăn uống & Cà phê', color: '#F59E0B' },
+    'DI_LAI': { name: 'Di chuyển & Đi lại', color: '#3B82F6' },
+    'MUA_SAM': { name: 'Mua sắm & Đồ dùng', color: '#EC4899' },
+    'HOA_DON': { name: 'Hóa đơn & Tiện ích', color: '#8B5CF6' },
+    'NHA_O': { name: 'Nhà ở & Tiền trọ', color: '#10B981' },
+    'GIAI_TRI': { name: 'Giải trí & Sở thích', color: '#6366F1' },
+    'SUC_KHOE': { name: 'Sức khỏe & Y tế', color: '#EF4444' },
+    'HOC_TAP': { name: 'Học tập & Phát triển', color: '#14B8A6' },
+    'TIET_KIEM_DAU_TU': { name: 'Tiết kiệm & Đầu tư', color: '#06B6D4' },
+    'THU_NHAP': { name: 'Thu nhập & Lương', color: '#22C55E' }
+};
+
+// Lấy số liệu thống kê tổng quan (Dashboard Summary) độc lập cho từng user_id
 router.get('/summary', verifyToken, async (req, res) => {
     try {
-        if (!isSupabaseConfigured()) {
-            return res.json({
-                success: true,
-                data: {
-                    total_balance: 14500000,
-                    this_month_income: 18000000,
-                    this_month_expense: 3500000,
-                    expense_by_category: [
-                        { category_code: 'AN_UONG', category_name: 'Ăn uống & Cà phê', total: 1500000, percentage: 42.8, color: '#F59E0B' },
-                        { category_code: 'DI_LAI', category_name: 'Di chuyển & Đi lại', total: 450000, percentage: 12.8, color: '#3B82F6' },
-                        { category_code: 'HOA_DON', category_name: 'Hóa đơn & Tiện ích', total: 650000, percentage: 18.6, color: '#8B5CF6' },
-                        { category_code: 'GIAI_TRI', category_name: 'Giải trí & Sở thích', total: 500000, percentage: 14.3, color: '#6366F1' },
-                        { category_code: 'MUA_SAM', category_name: 'Mua sắm & Đồ dùng', total: 400000, percentage: 11.5, color: '#EC4899' }
-                    ]
-                }
-            });
-        }
-
         const now = new Date();
         const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
 
-        // Lấy tất cả ví
-        const { data: wallets } = await supabase
-            .from('wallets')
-            .select('balance')
-            .eq('user_id', req.user.id);
+        let wallets = [];
+        let txs = [];
 
+        // 1. Thử lấy từ Supabase theo req.user.id
+        if (isSupabaseConfigured()) {
+            try {
+                const { data: sbWallets } = await supabase
+                    .from('wallets')
+                    .select('balance')
+                    .eq('user_id', req.user.id);
+                if (sbWallets) wallets = sbWallets;
+
+                const { data: sbTxs } = await supabase
+                    .from('transactions')
+                    .select('amount, type, category_code, transaction_date')
+                    .eq('user_id', req.user.id)
+                    .gte('transaction_date', firstDayOfMonth);
+                if (sbTxs) txs = sbTxs;
+            } catch (_) {}
+        }
+
+        // 2. Nếu Supabase không có, lấy từ Local Store của đúng user_id đó
+        if (wallets.length === 0) {
+            wallets = localStore.getWallets(req.user.id);
+        }
+        if (txs.length === 0) {
+            const allUserTxs = localStore.getTransactions(req.user.id);
+            txs = allUserTxs.filter(t => t.transaction_date >= firstDayOfMonth);
+        }
+
+        // Tính tổng số dư các ví của user
         const totalBalance = (wallets || []).reduce((acc, w) => acc + parseFloat(w.balance || 0), 0);
 
-        // Lấy giao dịch trong tháng hiện tại
-        const { data: txs } = await supabase
-            .from('transactions')
-            .select('amount, type, category_code')
-            .eq('user_id', req.user.id)
-            .gte('transaction_date', firstDayOfMonth);
-
+        // Tính thu - chi trong tháng
         let income = 0;
         let expense = 0;
         const catMap = {};
 
         (txs || []).forEach(t => {
-            const amt = parseFloat(t.amount);
+            const amt = parseFloat(t.amount || 0);
             if (t.type === 'income') {
                 income += amt;
             } else {
                 expense += amt;
-                catMap[t.category_code] = (catMap[t.category_code] || 0) + amt;
+                const cCode = t.category_code || 'AN_UONG';
+                catMap[cCode] = (catMap[cCode] || 0) + amt;
             }
         });
 
-        const categoryBreakdown = Object.keys(catMap).map(k => ({
-            category_code: k,
-            total: catMap[k],
-            percentage: expense > 0 ? Math.round((catMap[k] / expense) * 1000) / 10 : 0
-        }));
+        // Tính cơ cấu chi tiêu cho biểu đồ
+        const categoryBreakdown = Object.keys(catMap).map(k => {
+            const catMeta = CATEGORY_NAMES[k] || { name: k, color: '#6B7280' };
+            return {
+                category_code: k,
+                category_name: catMeta.name,
+                color: catMeta.color,
+                total: catMap[k],
+                percentage: expense > 0 ? Math.round((catMap[k] / expense) * 1000) / 10 : 0
+            };
+        });
 
         return res.json({
             success: true,

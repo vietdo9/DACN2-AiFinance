@@ -22,6 +22,7 @@ yarn-error.log*
 # Environment Variables & Secrets
 .env
 .env.local
+backend/data/*.json
 
 # Flutter & Dart
 **/doc/api/

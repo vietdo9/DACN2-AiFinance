@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { supabase, isSupabaseConfigured } = require('../config/supabase');
 const { verifyToken } = require('../middlewares/auth');
 const AiService = require('../services/aiService');
+const localStore = require('../config/localStore');
 
 // Danh sách 10 danh mục mặc định chuẩn PhoBERT
 const DEFAULT_CATEGORIES = [
@@ -14,83 +16,63 @@ const DEFAULT_CATEGORIES = [
     { code: 'GIAI_TRI', name: 'Giải trí & Sở thích', type: 'expense', icon: 'sports_esports', color: '#6366F1' },
     { code: 'SUC_KHOE', name: 'Sức khỏe & Y tế', type: 'expense', icon: 'medical_services', color: '#EF4444' },
     { code: 'HOC_TAP', name: 'Học tập & Phát triển', type: 'expense', icon: 'school', color: '#14B8A6' },
-    { code: 'TIET_KIEM_DAU_TU', 'name': 'Tiết kiệm & Đầu tư', type: 'expense', icon: 'savings', color: '#06B6D4' },
-    { code: 'THU_NHAP', 'name': 'Thu nhập & Lương', type: 'income', icon: 'payments', color: '#22C55E' }
+    { code: 'TIET_KIEM_DAU_TU', name: 'Tiết kiệm & Đầu tư', type: 'expense', icon: 'savings', color: '#06B6D4' },
+    { code: 'THU_NHAP', name: 'Thu nhập & Lương', type: 'income', icon: 'payments', color: '#22C55E' }
 ];
 
 // 1. Lấy danh mục chuẩn
 router.get('/categories', async (req, res) => {
     try {
-        if (!isSupabaseConfigured()) {
-            return res.json({ success: true, data: DEFAULT_CATEGORIES });
+        if (isSupabaseConfigured()) {
+            try {
+                const { data: categories, error } = await supabase
+                    .from('categories')
+                    .select('*')
+                    .order('id', { ascending: true });
+
+                if (!error && categories && categories.length > 0) {
+                    return res.json({ success: true, data: categories });
+                }
+            } catch (_) {}
         }
-
-        const { data: categories, error } = await supabase
-            .from('categories')
-            .select('*')
-            .order('id', { ascending: true });
-
-        if (error || !categories || categories.length === 0) {
-            return res.json({ success: true, data: DEFAULT_CATEGORIES });
-        }
-
-        return res.json({ success: true, data: categories });
+        return res.json({ success: true, data: DEFAULT_CATEGORIES });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// 2. Lấy danh sách giao dịch của người dùng
+// 2. Lấy danh sách giao dịch của NGƯỜI DÙNG HIỆN TẠI (Cách ly 100% theo user_id)
 router.get('/', verifyToken, async (req, res) => {
     try {
         const { limit = 50, type, category } = req.query;
 
-        if (!isSupabaseConfigured()) {
-            return res.json({
-                success: true,
-                data: [
-                    {
-                        id: 'tx-01',
-                        amount: 45000,
-                        type: 'expense',
-                        category_code: 'AN_UONG',
-                        category_name: 'Ăn uống & Cà phê',
-                        note: 'Ăn phở bò sáng',
-                        transaction_date: new Date().toISOString().split('T')[0],
-                        ai_predicted: true
-                    },
-                    {
-                        id: 'tx-02',
-                        amount: 15000000,
-                        type: 'income',
-                        category_code: 'THU_NHAP',
-                        category_name: 'Thu nhập & Lương',
-                        note: 'Nhận lương tháng',
-                        transaction_date: new Date().toISOString().split('T')[0],
-                        ai_predicted: false
-                    }
-                ]
-            });
+        // 1. Thử lấy từ Supabase
+        if (isSupabaseConfigured()) {
+            try {
+                let query = supabase
+                    .from('transactions')
+                    .select(`
+                        *,
+                        categories (name, icon, color),
+                        wallets (name)
+                    `)
+                    .eq('user_id', req.user.id)
+                    .order('transaction_date', { ascending: false })
+                    .limit(parseInt(limit));
+
+                if (type) query = query.eq('type', type);
+                if (category) query = query.eq('category_code', category);
+
+                const { data: transactions, error } = await query;
+                if (!error && transactions) {
+                    return res.json({ success: true, data: transactions });
+                }
+            } catch (_) {}
         }
 
-        let query = supabase
-            .from('transactions')
-            .select(`
-                *,
-                categories (name, icon, color),
-                wallets (name)
-            `)
-            .eq('user_id', req.user.id)
-            .order('transaction_date', { ascending: false })
-            .limit(parseInt(limit));
-
-        if (type) query = query.eq('type', type);
-        if (category) query = query.eq('category_code', category);
-
-        const { data: transactions, error } = await query;
-        if (error) throw error;
-
-        return res.json({ success: true, data: transactions });
+        // 2. Lấy từ Local Store cách ly theo đúng req.user.id
+        const userTxs = localStore.getTransactions(req.user.id, { type, category, limit });
+        return res.json({ success: true, data: userTxs });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
@@ -119,7 +101,7 @@ router.post('/', verifyToken, async (req, res) => {
                     ai_confidence = aiResult.confidence;
                 }
             } catch (aiErr) {
-                console.warn('[!] Không thể gọi AI tự phân loại, dùng mặc định:', aiErr.message);
+                console.warn('[!] Không thể gọi PhoBERT AI tự phân loại:', aiErr.message);
                 category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
             }
         }
@@ -128,80 +110,116 @@ router.post('/', verifyToken, async (req, res) => {
             category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
         }
 
-        if (!isSupabaseConfigured()) {
-            return res.status(201).json({
-                success: true,
-                message: 'Tạo giao dịch thành công (Demo Mode)',
-                data: {
-                    id: 'tx-new',
-                    amount,
-                    note,
-                    type,
-                    category_code,
-                    ai_predicted,
-                    ai_confidence,
-                    transaction_date: transaction_date || new Date().toISOString().split('T')[0]
+        const catInfo = DEFAULT_CATEGORIES.find(c => c.code === category_code) || {
+            name: category_code,
+            icon: 'category',
+            color: '#6B7280'
+        };
+
+        const numericAmount = parseFloat(amount);
+        const txDate = transaction_date || new Date().toISOString().split('T')[0];
+        let savedTx = null;
+
+        // 1. Thử lưu vào Supabase
+        if (isSupabaseConfigured()) {
+            try {
+                const { data: transaction, error: txError } = await supabase
+                    .from('transactions')
+                    .insert([{
+                        user_id: req.user.id,
+                        wallet_id: wallet_id || null,
+                        category_code,
+                        amount: numericAmount,
+                        type,
+                        note: note || '',
+                        transaction_date: txDate,
+                        ai_predicted,
+                        ai_confidence
+                    }])
+                    .select()
+                    .single();
+
+                if (!txError && transaction) {
+                    savedTx = {
+                        ...transaction,
+                        category_name: catInfo.name,
+                        categories: catInfo
+                    };
+
+                    // Cập nhật số dư ví
+                    if (wallet_id) {
+                        const delta = type === 'income' ? numericAmount : -numericAmount;
+                        await supabase.rpc('update_wallet_balance', {
+                            p_wallet_id: wallet_id,
+                            p_amount: delta
+                        }).catch(() => {});
+                    }
                 }
-            });
+            } catch (_) {}
         }
 
-        // 1. Thêm vào bảng transactions
-        const { data: transaction, error: txError } = await supabase
-            .from('transactions')
-            .insert([{
+        // 2. Lưu vào Local Store nếu Supabase chưa có
+        if (!savedTx) {
+            savedTx = {
+                id: crypto.randomUUID ? crypto.randomUUID() : `tx-${Date.now()}`,
                 user_id: req.user.id,
                 wallet_id: wallet_id || null,
                 category_code,
-                amount: parseFloat(amount),
+                category_name: catInfo.name,
+                categories: catInfo,
+                amount: numericAmount,
                 type,
                 note: note || '',
-                transaction_date: transaction_date || new Date().toISOString().split('T')[0],
+                transaction_date: txDate,
                 ai_predicted,
-                ai_confidence
-            }])
-            .select()
-            .single();
+                ai_confidence,
+                created_at: new Date().toISOString()
+            };
 
-        if (txError) throw txError;
+            localStore.addTransaction(savedTx);
 
-        // 2. Cập nhật số dư ví nếu có wallet_id
-        if (wallet_id) {
-            const balanceDelta = type === 'income' ? parseFloat(amount) : -parseFloat(amount);
-            const { data: wallet } = await supabase.from('wallets').select('balance').eq('id', wallet_id).single();
-            if (wallet) {
-                const newBalance = parseFloat(wallet.balance) + balanceDelta;
-                await supabase.from('wallets').update({ balance: newBalance }).eq('id', wallet_id);
+            // Cập nhật số dư ví trong local store
+            const userWallets = localStore.getWallets(req.user.id);
+            const targetWallet = wallet_id 
+                ? userWallets.find(w => w.id === wallet_id) 
+                : userWallets[0];
+
+            if (targetWallet) {
+                const delta = type === 'income' ? numericAmount : -numericAmount;
+                localStore.updateWalletBalance(targetWallet.id, delta);
             }
         }
 
         return res.status(201).json({
             success: true,
-            message: 'Tạo giao dịch thành công',
-            data: transaction
+            message: 'Tạo giao dịch thành công' + (ai_predicted ? ' (PhoBERT tự động phân loại)' : ''),
+            data: savedTx
         });
     } catch (err) {
-        console.error('[!] Lỗi tạo giao dịch:', err.message);
         return res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// 4. Xóa giao dịch
+// 4. Xóa giao dịch (Chỉ được xóa giao dịch của chính mình)
 router.delete('/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
 
-        if (!isSupabaseConfigured()) {
-            return res.json({ success: true, message: 'Đã xóa giao dịch (Demo Mode)' });
+        if (isSupabaseConfigured()) {
+            try {
+                const { error } = await supabase
+                    .from('transactions')
+                    .delete()
+                    .eq('id', id)
+                    .eq('user_id', req.user.id);
+
+                if (!error) {
+                    return res.json({ success: true, message: 'Đã xóa giao dịch thành công' });
+                }
+            } catch (_) {}
         }
 
-        const { error } = await supabase
-            .from('transactions')
-            .delete()
-            .eq('id', id)
-            .eq('user_id', req.user.id);
-
-        if (error) throw error;
-
+        localStore.deleteTransaction(id, req.user.id);
         return res.json({ success: true, message: 'Đã xóa giao dịch thành công' });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });

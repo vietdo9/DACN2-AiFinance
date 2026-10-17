@@ -2,19 +2,30 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/category_model.dart';
 import '../models/transaction_model.dart';
 import '../models/forecast_model.dart';
+import '../models/user_model.dart';
 
 class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
   ApiService._internal();
 
-  // URL Backend Node.js
-  // Trên Windows / Web: http://localhost:5000
-  // Trên Android Emulator: http://10.0.2.2:5000
+  String? _customBaseUrl;
+  String? _authToken;
+  UserModel? _currentUser;
+
+  UserModel? get currentUser => _currentUser;
+  bool get isLoggedIn => _currentUser != null && _authToken != null;
+  String? get currentToken => _authToken;
+
+  // Lấy Base URL của Backend Node.js
   String get baseUrl {
+    if (_customBaseUrl != null && _customBaseUrl!.trim().isNotEmpty) {
+      return _customBaseUrl!.trim();
+    }
     if (kIsWeb) return 'http://localhost:5000';
     if (defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:5000';
@@ -22,7 +33,13 @@ class ApiService {
     return 'http://localhost:5000';
   }
 
-  String? _authToken = 'demo_token';
+  void setCustomBaseUrl(String url) async {
+    _customBaseUrl = url.trim();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('finwise_base_url', _customBaseUrl!);
+    } catch (_) {}
+  }
 
   void setToken(String token) {
     _authToken = token;
@@ -33,29 +50,134 @@ class ApiService {
         if (_authToken != null) 'Authorization': 'Bearer $_authToken',
       };
 
-  /// 1. Đăng nhập
-  Future<bool> login(String email, String password) async {
+  /// Khởi tạo và khôi phục phiên đăng nhập đã lưu
+  Future<bool> checkSavedSession() async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 4));
+      final prefs = await SharedPreferences.getInstance();
+      _customBaseUrl = prefs.getString('finwise_base_url');
+      final token = prefs.getString('finwise_token');
+      final userJson = prefs.getString('finwise_user');
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        _authToken = data['data']?['token'];
+      if (token != null && userJson != null) {
+        _authToken = token;
+        _currentUser = UserModel.fromJson(jsonDecode(userJson), token: token);
         return true;
       }
-    } catch (_) {
-      // Chế độ demo
-      _authToken = 'demo_token';
-      return true;
-    }
+    } catch (_) {}
     return false;
   }
 
-  /// 2. Lấy dữ liệu Thống kê Tổng quan (Dashboard Summary)
+  /// 1. Đăng ký tài khoản mới
+  Future<Map<String, dynamic>> register({
+    required String fullName,
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/auth/register'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'full_name': fullName.trim(),
+              'email': email.trim().toLowerCase(),
+              'password': password,
+            }),
+          )
+          .timeout(const Duration(seconds: 6));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (data['success'] == true && data['data'] != null) {
+          final userData = data['data']['user'];
+          final token = data['data']['token']?.toString() ?? 'token_${DateTime.now().millisecondsSinceEpoch}';
+
+          _authToken = token;
+          _currentUser = UserModel.fromJson(userData, token: token);
+
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('finwise_token', token);
+          await prefs.setString('finwise_user', jsonEncode(_currentUser!.toJson()));
+
+          return {'success': true, 'message': data['message'] ?? 'Đăng ký tài khoản thành công!'};
+        }
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'Đăng ký không thành công. Vui lòng thử lại.'
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Không thể kết nối tới máy chủ ($baseUrl). Vui lòng đảm bảo Backend đang chạy.'
+      };
+    }
+  }
+
+  /// 2. Đăng nhập
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/auth/login'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email.trim().toLowerCase(), 'password': password}),
+          )
+          .timeout(const Duration(seconds: 6));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        final userData = data['data']?['user'] ?? {};
+        final token = data['data']?['token']?.toString() ?? 'demo_token';
+
+        _authToken = token;
+        _currentUser = UserModel.fromJson(userData, token: token);
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('finwise_token', token);
+        await prefs.setString('finwise_user', jsonEncode(_currentUser!.toJson()));
+
+        return {'success': true, 'message': 'Đăng nhập thành công!'};
+      }
+
+      return {
+        'success': false,
+        'message': data['message'] ?? 'Email hoặc mật khẩu không chính xác.'
+      };
+    } catch (e) {
+      if (email.trim().toLowerCase() == 'demo@finwise.vn' && password == '123456') {
+        _authToken = 'demo_token';
+        _currentUser = UserModel(
+          id: '00000000-0000-0000-0000-000000000001',
+          email: 'demo@finwise.vn',
+          fullName: 'Người Dùng Demo',
+          token: 'demo_token',
+        );
+        return {'success': true, 'message': 'Đăng nhập tài khoản Demo thành công!'};
+      }
+
+      return {
+        'success': false,
+        'message': 'Không thể kết nối máy chủ ($baseUrl).'
+      };
+    }
+  }
+
+  /// 3. Đăng xuất
+  Future<void> logout() async {
+    _authToken = null;
+    _currentUser = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('finwise_token');
+      await prefs.remove('finwise_user');
+    } catch (_) {}
+  }
+
+  /// 4. Lấy dữ liệu Thống kê Tổng quan (Độc lập theo từng tài khoản)
   Future<Map<String, dynamic>> getSummary() async {
     try {
       final response = await http
@@ -68,22 +190,16 @@ class ApiService {
       }
     } catch (_) {}
 
-    // Fallback dữ liệu mẫu đẹp mắt khi chưa mở backend
+    // Giá trị ban đầu sạch sẽ cho tài khoản mới (không dùng số liệu giả)
     return {
-      'total_balance': 15850000.0,
-      'this_month_income': 22000000.0,
-      'this_month_expense': 6150000.0,
-      'expense_by_category': [
-        {'category_code': 'AN_UONG', 'category_name': 'Ăn uống & Cà phê', 'total': 2450000.0, 'percentage': 39.8, 'color': '#F59E0B'},
-        {'category_code': 'DI_LAI', 'category_name': 'Di chuyển & Đi lại', 'total': 850000.0, 'percentage': 13.8, 'color': '#3B82F6'},
-        {'category_code': 'HOA_DON', 'category_name': 'Hóa đơn & Tiện ích', 'total': 1200000.0, 'percentage': 19.5, 'color': '#8B5CF6'},
-        {'category_code': 'GIAI_TRI', 'category_name': 'Giải trí & Sở thích', 'total': 750000.0, 'percentage': 12.2, 'color': '#6366F1'},
-        {'category_code': 'MUA_SAM', 'category_name': 'Mua sắm & Đồ dùng', 'total': 900000.0, 'percentage': 14.6, 'color': '#EC4899'},
-      ]
+      'total_balance': 0.0,
+      'this_month_income': 0.0,
+      'this_month_expense': 0.0,
+      'expense_by_category': []
     };
   }
 
-  /// 3. Lấy 10 danh mục chuẩn
+  /// 5. Lấy danh mục chuẩn
   Future<List<CategoryModel>> getCategories() async {
     try {
       final response = await http
@@ -97,7 +213,6 @@ class ApiService {
       }
     } catch (_) {}
 
-    // Fallback 10 danh mục chuẩn
     return [
       CategoryModel(code: 'AN_UONG', name: 'Ăn uống & Cà phê', type: 'expense', icon: 'restaurant', color: const Color(0xFFF59E0B)),
       CategoryModel(code: 'DI_LAI', name: 'Di chuyển & Đi lại', type: 'expense', icon: 'directions_car', color: const Color(0xFF3B82F6)),
@@ -112,7 +227,7 @@ class ApiService {
     ];
   }
 
-  /// 4. Lấy lịch sử giao dịch
+  /// 6. Lấy lịch sử giao dịch (Độc lập của tài khoản đang đăng nhập)
   Future<List<TransactionModel>> getTransactions() async {
     try {
       final response = await http
@@ -126,43 +241,10 @@ class ApiService {
       }
     } catch (_) {}
 
-    return [
-      TransactionModel(
-        id: '1',
-        amount: 45000,
-        type: 'expense',
-        categoryCode: 'AN_UONG',
-        categoryName: 'Ăn uống & Cà phê',
-        note: 'Ăn bún bò huế sáng',
-        transactionDate: DateTime.now(),
-        aiPredicted: true,
-        aiConfidence: 0.985,
-      ),
-      TransactionModel(
-        id: '2',
-        amount: 15000000,
-        type: 'income',
-        categoryCode: 'THU_NHAP',
-        categoryName: 'Thu nhập & Lương',
-        note: 'Nhận lương tháng',
-        transactionDate: DateTime.now().subtract(const Duration(days: 1)),
-        aiPredicted: false,
-      ),
-      TransactionModel(
-        id: '3',
-        amount: 120000,
-        type: 'expense',
-        categoryCode: 'DI_LAI',
-        categoryName: 'Di chuyển & Đi lại',
-        note: 'Đổ xăng xe máy + grab bike',
-        transactionDate: DateTime.now().subtract(const Duration(days: 2)),
-        aiPredicted: true,
-        aiConfidence: 0.991,
-      ),
-    ];
+    return [];
   }
 
-  /// 5. Gọi PhoBERT AI để tự phân loại từ câu ghi chú
+  /// 7. Gọi PhoBERT AI để tự phân loại từ câu ghi chú
   Future<Map<String, dynamic>?> classifyWithAi(String note) async {
     try {
       final response = await http.post(
@@ -179,7 +261,7 @@ class ApiService {
     return null;
   }
 
-  /// 6. Tạo giao dịch mới
+  /// 8. Tạo giao dịch mới
   Future<bool> createTransaction({
     required double amount,
     required String note,
@@ -194,37 +276,37 @@ class ApiService {
           'amount': amount,
           'note': note,
           'type': type,
-          if (categoryCode != null) 'category_code': categoryCode,
+          ...? (categoryCode != null ? {'category_code': categoryCode} : null),
         }),
       ).timeout(const Duration(seconds: 5));
 
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (_) {
-      return true; // Mô phỏng thành công
+      return false;
     }
   }
 
-  /// 7. Lấy Dự báo 7 ngày từ mạng LSTM AI
-  Future<ForecastModel> getAiForecast() async {
+  /// 9. Lấy Dự báo 7 ngày từ mạng LSTM AI (Độc lập theo dữ liệu thật của tài khoản)
+  Future<ForecastModel> getAiForecast({bool isDemo = false}) async {
     try {
+      final url = '$baseUrl/api/ai/user-forecast${isDemo ? '?demo=true' : ''}';
       final response = await http
-          .get(Uri.parse('$baseUrl/api/ai/user-forecast'), headers: _headers)
+          .get(Uri.parse(url), headers: _headers)
           .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final res = jsonDecode(response.body);
-        return ForecastModel.fromJson(res['data'] ?? {});
+        if (res['has_enough_data'] == false) {
+          return ForecastModel.empty(message: res['message']);
+        }
+        return ForecastModel.fromJson(
+          res['data'] ?? {},
+          hasEnoughData: true,
+          isDemoData: res['is_demo_data'] ?? isDemo,
+        );
       }
     } catch (_) {}
 
-    // Fallback dự báo mẫu từ LSTM
-    return ForecastModel(
-      predictedNext7Days: [180000, 250000, 190000, 310000, 220000, 480000, 520000],
-      totalForecast: 2150000,
-      averageDailyForecast: 307143,
-      warningLevel: 'AN_TOAN',
-      message: 'Dòng tiền 7 ngày tới ở mức ổn định. Các khoản chi lớn tập trung vào cuối tuần.',
-      historicalRecentDays: [150000, 200000, 180000, 220000, 210000, 450000, 490000],
-    );
+    return ForecastModel.empty();
   }
 }

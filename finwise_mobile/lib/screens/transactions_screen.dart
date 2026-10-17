@@ -81,7 +81,24 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
 
   Widget _buildList(List<TransactionModel> items) {
     if (items.isEmpty) {
-      return const Center(child: Text('Không có giao dịch nào', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.receipt_long_outlined, size: 48, color: Color(0xFF94A3B8)),
+            SizedBox(height: 12),
+            Text(
+              'Chưa có giao dịch nào',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF334155)),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Các khoản chi tiêu của bạn sẽ được lưu riêng biệt tại đây.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            ),
+          ],
+        ),
+      );
     }
 
     return ListView.builder(

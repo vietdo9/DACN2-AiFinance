@@ -354,9 +354,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildRecentTransactionsList() {
     if (_recentTransactions.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(24),
-        alignment: Alignment.center,
-        child: const Text('Chưa có giao dịch nào gần đây', style: TextStyle(color: Colors.grey)),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF1F5F9)),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.receipt_long_outlined, size: 36, color: Color(0xFF94A3B8)),
+            const SizedBox(height: 8),
+            const Text(
+              'Chưa có giao dịch nào',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155)),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Hãy bấm nút "Thêm Thu/Chi" góc dưới để ghi lại khoản tiền đầu tiên của bạn!',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            ),
+          ],
+        ),
       );
     }
 
