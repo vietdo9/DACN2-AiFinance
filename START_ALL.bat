@@ -10,6 +10,36 @@ echo.
 set ROOT=%~dp0
 set ADB="C:\Users\admin\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 
+:: Tu dong nhan dien trinh duyet Web tren may (Brave / Chrome / Edge)
+set "BROWSER_NAME=Microsoft Edge"
+set "TARGET_DEVICE=edge"
+set "CHROME_EXECUTABLE="
+
+if exist "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" (
+    set "CHROME_EXECUTABLE=C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+    set "BROWSER_NAME=Brave Browser"
+    set "TARGET_DEVICE=chrome"
+) else if exist "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe" (
+    set "CHROME_EXECUTABLE=%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"
+    set "BROWSER_NAME=Brave Browser"
+    set "TARGET_DEVICE=chrome"
+) else if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
+    set "BROWSER_NAME=Google Chrome"
+    set "TARGET_DEVICE=chrome"
+) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
+    set "BROWSER_NAME=Google Chrome"
+    set "TARGET_DEVICE=chrome"
+) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
+    set "BROWSER_NAME=Google Chrome"
+    set "TARGET_DEVICE=chrome"
+) else if exist "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" (
+    set "BROWSER_NAME=Microsoft Edge"
+    set "TARGET_DEVICE=edge"
+) else if exist "C:\Program Files\Microsoft\Edge\Application\msedge.exe" (
+    set "BROWSER_NAME=Microsoft Edge"
+    set "TARGET_DEVICE=edge"
+)
+
 echo [1/2] Khoi dong AI Microservice (Port 8000)...
 start "AI Service :8000" cmd /k "cd /d "%ROOT%ai_service" && .\venv\Scripts\python.exe app.py"
 
@@ -27,7 +57,7 @@ echo =======================================================
 echo.
 echo Ban muon mo giao dien FinWise theo cach nao?
 echo.
-echo   [1] Mo tren Google Chrome (Web - Nhan Enter de chon)
+echo   [1] Mo tren Trinh duyet Web (%BROWSER_NAME% - Nhan Enter de chon)
 echo   [2] Chay len Dien thoai Android (Cam cap USB)
 echo   [3] Xuat file cai dat Android (.apk cho dien thoai)
 echo   [4] Chi chay Server (Khong mo Client)
@@ -36,16 +66,21 @@ echo.
 set /p CHOICE="Nhap lua chon (1-4) [Mac dinh: 1]: "
 if "%CHOICE%"=="" set CHOICE=1
 
-if "%CHOICE%"=="1" goto CHROME
+if "%CHOICE%"=="1" goto WEB
 if "%CHOICE%"=="2" goto PHONE
 if "%CHOICE%"=="3" goto BUILD_APK
 if "%CHOICE%"=="4" goto SERVER_ONLY
-goto CHROME
+goto WEB
 
-:CHROME
+:WEB
 echo.
-echo [*] Dang khoi chay tren Google Chrome...
-start "Flutter Web Client" cmd /k "cd /d "%ROOT%finwise_mobile" && flutter run -d chrome"
+echo [*] Phat hien trinh duyet: %BROWSER_NAME%
+echo [*] Dang khoi chay FinWise Web tren %BROWSER_NAME%...
+if not "%CHROME_EXECUTABLE%"=="" (
+    start "Flutter Web Client" cmd /k "cd /d "%ROOT%finwise_mobile" && set "CHROME_EXECUTABLE=%CHROME_EXECUTABLE%" && flutter run -d %TARGET_DEVICE%"
+) else (
+    start "Flutter Web Client" cmd /k "cd /d "%ROOT%finwise_mobile" && flutter run -d %TARGET_DEVICE%"
+)
 goto END
 
 :PHONE
