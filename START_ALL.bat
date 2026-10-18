@@ -10,34 +10,25 @@ echo.
 set ROOT=%~dp0
 set ADB="C:\Users\admin\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 
-:: Tu dong nhan dien trinh duyet Web tren may (Brave / Chrome / Edge)
-set "BROWSER_NAME=Microsoft Edge"
+:: Tu dong nhan dien trinh duyet Web tot nhat tren may (Chrome hoac Microsoft Edge)
 set "TARGET_DEVICE=edge"
-set "CHROME_EXECUTABLE="
+set "BROWSER_NAME=Microsoft Edge"
 
-if exist "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe" (
-    set "CHROME_EXECUTABLE=C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
-    set "BROWSER_NAME=Brave Browser"
+if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
     set "TARGET_DEVICE=chrome"
-) else if exist "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe" (
-    set "CHROME_EXECUTABLE=%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"
-    set "BROWSER_NAME=Brave Browser"
-    set "TARGET_DEVICE=chrome"
-) else if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
     set "BROWSER_NAME=Google Chrome"
-    set "TARGET_DEVICE=chrome"
 ) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_NAME=Google Chrome"
     set "TARGET_DEVICE=chrome"
+    set "BROWSER_NAME=Google Chrome"
 ) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_NAME=Google Chrome"
     set "TARGET_DEVICE=chrome"
+    set "BROWSER_NAME=Google Chrome"
 ) else if exist "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" (
-    set "BROWSER_NAME=Microsoft Edge"
     set "TARGET_DEVICE=edge"
+    set "BROWSER_NAME=Microsoft Edge"
 ) else if exist "C:\Program Files\Microsoft\Edge\Application\msedge.exe" (
-    set "BROWSER_NAME=Microsoft Edge"
     set "TARGET_DEVICE=edge"
+    set "BROWSER_NAME=Microsoft Edge"
 )
 
 echo [1/2] Khoi dong AI Microservice (Port 8000)...
@@ -76,11 +67,7 @@ goto WEB
 echo.
 echo [*] Phat hien trinh duyet: %BROWSER_NAME%
 echo [*] Dang khoi chay FinWise Web tren %BROWSER_NAME%...
-if not "%CHROME_EXECUTABLE%"=="" (
-    start "Flutter Web Client" cmd /k "cd /d "%ROOT%finwise_mobile" && set "CHROME_EXECUTABLE=%CHROME_EXECUTABLE%" && flutter run -d %TARGET_DEVICE%"
-) else (
-    start "Flutter Web Client" cmd /k "cd /d "%ROOT%finwise_mobile" && flutter run -d %TARGET_DEVICE%"
-)
+start "Flutter Web Client" cmd /k "cd /d "%ROOT%finwise_mobile" && flutter run -d %TARGET_DEVICE%"
 goto END
 
 :PHONE
