@@ -17,11 +17,13 @@ if sys.platform == "win32":
         pass
 import torch.nn as nn
 import numpy as np
-from fastapi import FastAPI, HTTPException
+import easyocr
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from bill_parser import parse_receipt_ocr_results
 
 # Khởi tạo App FastAPI
 app = FastAPI(
@@ -72,6 +74,7 @@ phobert_tokenizer = None
 phobert_model = None
 lstm_model = None
 lstm_scaler = None
+ocr_reader = None
 
 CATEGORIES_NAMES_VN = {
     "AN_UONG": "Ăn uống & Cà phê",
@@ -89,7 +92,7 @@ CATEGORIES_NAMES_VN = {
 @app.on_event("startup")
 def load_models():
     """Tải trước các mô hình vào bộ nhớ RAM/VRAM khi server khởi động."""
-    global phobert_tokenizer, phobert_model, lstm_model, lstm_scaler
+    global phobert_tokenizer, phobert_model, lstm_model, lstm_scaler, ocr_reader
     print(f"[*] Đang khởi động AI Service trên thiết bị: {device}...")
 
     # 1. Tải PhoBERT
@@ -118,6 +121,15 @@ def load_models():
         print("[+] Mô hình LSTM Forecaster đã sẵn sàng!")
     else:
         print("[!] Cảnh báo: Chưa tìm thấy weights LSTM đã train. Vui lòng chạy train_lstm.py.")
+
+    # 3. Tải EasyOCR (CRAFT + CRNN Tiếng Việt)
+    try:
+        print("[*] Đang nạp mô hình OCR (EasyOCR CRAFT-CRNN)...")
+        use_gpu = torch.cuda.is_available()
+        ocr_reader = easyocr.Reader(['vi', 'en'], gpu=use_gpu, verbose=False)
+        print(f"[+] Mô hình EasyOCR đã sẵn sàng (GPU: {use_gpu})!")
+    except Exception as e:
+        print(f"[!] Cảnh báo nạp EasyOCR: {e}")
 
 # ==============================================================================
 # SCHEMAS (Định dạng Request / Response)
@@ -152,8 +164,68 @@ def health_check():
         "device": str(device),
         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None",
         "phobert_loaded": phobert_model is not None,
-        "lstm_loaded": lstm_model is not None
+        "lstm_loaded": lstm_model is not None,
+        "ocr_loaded": ocr_reader is not None
     }
+
+@app.post("/api/v1/ai/scan-bill")
+async def scan_bill(file: UploadFile = File(...)):
+    global ocr_reader
+    if ocr_reader is None:
+        try:
+            ocr_reader = easyocr.Reader(['vi', 'en'], gpu=torch.cuda.is_available(), verbose=False)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Không thể khởi tạo mô hình OCR: {str(e)}")
+
+    try:
+        image_bytes = await file.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="File ảnh rỗng!")
+
+        # 1. Nhận diện chữ bằng EasyOCR
+        ocr_results = ocr_reader.readtext(image_bytes)
+        
+        # 2. Bóc tách thông tin hóa đơn (Merchant, Total Amount, Date)
+        parsed = parse_receipt_ocr_results(ocr_results)
+        
+        # 3. Sử dụng PhoBERT dự đoán danh mục từ thông tin hóa đơn
+        cat_code = "MUA_SAM"
+        confidence = 0.5
+        
+        text_for_phobert = f"{parsed['merchant']} {' '.join(parsed['all_lines'][1:6])}".strip()
+        if phobert_model and phobert_tokenizer and text_for_phobert:
+            try:
+                inputs = phobert_tokenizer(
+                    text_for_phobert,
+                    truncation=True,
+                    padding="max_length",
+                    max_length=64,
+                    return_tensors="pt"
+                ).to(device)
+                with torch.no_grad():
+                    outputs = phobert_model(**inputs)
+                    probs = torch.softmax(outputs.logits, dim=1).cpu().numpy()[0]
+                    pred_idx = int(np.argmax(probs))
+                    confidence = float(probs[pred_idx])
+                    cat_code = phobert_model.config.id2label[pred_idx]
+            except Exception as pe:
+                print(f"[!] Lỗi khi chạy PhoBERT cho hóa đơn: {pe}")
+                
+        cat_name = CATEGORIES_NAMES_VN.get(cat_code, "Mua sắm & Đồ dùng")
+
+        return {
+            "success": True,
+            "merchant": parsed["merchant"],
+            "total_amount": parsed["total_amount"],
+            "date": parsed["date"],
+            "category_code": cat_code,
+            "category_name": cat_name,
+            "confidence": round(confidence, 4),
+            "raw_text": parsed["raw_text"],
+            "line_count": len(parsed["all_lines"])
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý hóa đơn OCR: {str(e)}")
 
 @app.post("/api/v1/ai/classify", response_model=ClassifyResponse)
 def classify_transaction(req: ClassifyRequest):

@@ -1,10 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const multer = require('multer');
 const { supabase, isSupabaseConfigured } = require('../config/supabase');
 const { verifyToken } = require('../middlewares/auth');
 const AiService = require('../services/aiService');
 const localStore = require('../config/localStore');
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 } // Tối đa 10MB
+});
 
 // Danh sách 10 danh mục mặc định chuẩn PhoBERT
 const DEFAULT_CATEGORIES = [
@@ -19,6 +25,31 @@ const DEFAULT_CATEGORIES = [
     { code: 'TIET_KIEM_DAU_TU', name: 'Tiết kiệm & Đầu tư', type: 'expense', icon: 'savings', color: '#06B6D4' },
     { code: 'THU_NHAP', name: 'Thu nhập & Lương', type: 'income', icon: 'payments', color: '#22C55E' }
 ];
+
+// Quét ảnh hóa đơn / Bill bằng AI (EasyOCR + PhoBERT)
+router.post('/scan-bill', verifyToken, upload.single('bill'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'Vui lòng tải lên một ảnh hóa đơn (trường "bill")' });
+        }
+
+        const ocrResult = await AiService.scanBill(
+            req.file.buffer,
+            req.file.originalname,
+            req.file.mimetype
+        );
+
+        return res.json({
+            success: true,
+            message: 'Quét hóa đơn thành công!',
+            data: ocrResult
+        });
+    } catch (err) {
+        console.error('[!] Lỗi khi quét hóa đơn:', err.message);
+        return res.status(500).json({ success: false, message: err.message || 'Lỗi xử lý hóa đơn' });
+    }
+});
+
 
 // 1. Lấy danh mục chuẩn
 router.get('/categories', async (req, res) => {

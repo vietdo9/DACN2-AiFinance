@@ -309,4 +309,43 @@ class ApiService {
 
     return ForecastModel.empty();
   }
+
+  /// 10. Quét ảnh hóa đơn / Bill thanh toán bằng AI (EasyOCR + PhoBERT)
+  Future<Map<String, dynamic>?> scanBill({
+    required List<int> imageBytes,
+    required String filename,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/transactions/scan-bill');
+      final request = http.MultipartRequest('POST', uri);
+
+      if (_authToken != null) {
+        request.headers['Authorization'] = 'Bearer $_authToken';
+      }
+
+      final multipartFile = http.MultipartFile.fromBytes(
+        'bill',
+        imageBytes,
+        filename: filename,
+      );
+      request.files.add(multipartFile);
+
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final res = jsonDecode(utf8.decode(response.bodyBytes));
+        if (res['success'] == true && res['data'] != null) {
+          return res['data'];
+        }
+      } else {
+        final errJson = jsonDecode(utf8.decode(response.bodyBytes));
+        debugPrint('[!] scanBill error: ${errJson['message']}');
+      }
+    } catch (e) {
+      debugPrint('[!] Lỗi gọi API scanBill: $e');
+    }
+    return null;
+  }
 }
+

@@ -54,6 +54,35 @@ class AiService {
             throw new Error(error.response?.data?.detail || 'Lỗi khi gọi dịch vụ dự báo AI');
         }
     }
+
+    /**
+     * Gửi ảnh hóa đơn sang AI Microservice để OCR bóc tách và phân loại
+     * @param {Buffer} fileBuffer - Buffer dữ liệu ảnh
+     * @param {string} filename - Tên file ảnh
+     * @param {string} mimetype - Loại file
+     */
+    static async scanBill(fileBuffer, filename = 'bill.jpg', mimetype = 'image/jpeg') {
+        try {
+            const formData = new FormData();
+            const blob = new Blob([fileBuffer], { type: mimetype });
+            formData.append('file', blob, filename);
+
+            const response = await fetch(`${AI_BASE_URL}/api/v1/ai/scan-bill`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errJson = await response.json().catch(() => ({}));
+                throw new Error(errJson.detail || `Lỗi AI Service: HTTP ${response.status}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('[!] Lỗi gọi AI scanBill:', error.message);
+            throw error;
+        }
+    }
 }
 
 module.exports = AiService;
