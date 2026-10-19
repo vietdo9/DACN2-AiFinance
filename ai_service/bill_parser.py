@@ -13,31 +13,39 @@ from typing import List, Tuple, Dict, Any, Optional
 
 # Danh sách từ khóa báo hiệu dòng Tổng tiền trên hóa đơn tiếng Việt & tiếng Anh
 TOTAL_KEYWORDS = [
+    # Tiếng Việt
     "tổng cộng", "tong cong", "tổng tiền", "tong tien",
     "thanh toán", "thanh toan", "thành tiền", "thanh tien",
     "tổng thanh toán", "tong thanh toan", "phải trả", "phai tra",
     "tiền thanh toán", "tien thanh toan", "tổng cộng tiền", "tong cong tien",
-    "số tiền", "so tien", "chuyển khoản", "chuyen khoan", "tiền mặt", "tien mat",
-    "grand total", "total amount", "total", "amount due", "net amount", "tong"
+    "số tiền", "so tien", "chuyển khoản", "chuyen khoan", "tiền mặt", "tien mat", "tong",
+    # Tiếng Anh
+    "grand total", "total amount", "total", "amount due", "net amount",
+    "subtotal", "sub total", "balance due", "balance", "amount",
+    "cash", "credit card", "debit card", "visa", "mastercard"
 ]
 
 # Các từ khóa tiêu đề chung cần bỏ qua (đặc biệt khi tìm tổng tiền và tên quán)
 HEADER_IGNORE_KEYWORDS = [
+    # Tiếng Việt
     "hóa đơn thanh toán", "hoa don thanh toan", "phiếu thanh toán", "phieu thanh toan",
     "phiếu tính tiền", "phieu tinh tien", "hóa đơn bán lẻ", "hoa don ban le",
     "hóa đơn bán hàng", "hoa don ban hang", "hóa đơn vat", "hoa don vat",
     "hóa đơn gtgt", "hoa don gtgt", "hóa đơn", "hoa don",
-    "receipt", "invoice", "bill", "tax invoice",
-    "welcome", "xin chào", "xin chao", "cảm ơn quý khách", "cam on quy khach",
-    "thu ngân", "nhân viên", "bàn", "so hd", "số hđ", "ma hd", "mã hđ"
+    # Tiếng Anh
+    "receipt", "invoice", "bill", "tax invoice", "guest check", "sales slip",
+    "order confirmation", "order receipt", "pos receipt",
+    "welcome", "xin chào", "xin chao", "cảm ơn quý khách", "cam on quy khach", "thank you",
+    "thu ngân", "nhân viên", "bàn", "so hd", "số hđ", "ma hd", "mã hđ", "cashier", "table"
 ]
 
 # Các từ khóa chỉ dòng chứa thông tin phụ (ngày tháng, số điện thoại, mã số thuế)
 NON_AMOUNT_KEYWORDS = [
     "ngày", "ngay", "date", "time", "giờ", "gio",
     "tel", "phone", "đt", "dt", "hotline", "mst", "tax", "wifi",
-    "bàn", "ban", "table", "stt", "thu ngân", "nhan vien"
+    "bàn", "ban", "table", "stt", "thu ngân", "nhan vien", "cashier", "server", "waiter"
 ]
+
 
 def extract_amount_from_line(raw: str) -> Optional[int]:
     """Trích xuất số tiền chuẩn từ một dòng text."""

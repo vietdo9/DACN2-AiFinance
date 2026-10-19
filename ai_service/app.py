@@ -89,6 +89,40 @@ CATEGORIES_NAMES_VN = {
     "THU_NHAP": "Thu nhập & Lương"
 }
 
+# Bổ trợ từ khóa tiếng Anh phổ biến để nhận diện danh mục chính xác tuyệt đối trên hóa đơn song ngữ/tiếng Anh
+ENGLISH_DOMAIN_KEYWORDS = {
+    "AN_UONG": [
+        "coffee", "cafe", "tea", "starbucks", "highlands", "kfc", "mcdonald", "lotteria", "jollibee",
+        "burger", "pizza", "restaurant", "bar", "bakery", "food", "drink", "bistro", "pub", "grill",
+        "bbq", "steak", "sushi", "noodles", "latte", "cappuccino", "espresso", "milk tea", "cake", "ice cream"
+    ],
+    "DI_LAI": [
+        "grab", "be", "gojek", "taxi", "uber", "flight", "airline", "vietjet", "vietnam airlines",
+        "petrol", "gasoline", "fuel", "parking", "toll", "bus", "train", "ticket"
+    ],
+    "MUA_SAM": [
+        "mart", "supermarket", "mall", "shopee", "lazada", "tiki", "zara", "uniqlo", "h&m",
+        "fashion", "shoes", "clothes", "store", "shop", "convenience", "circle k", "family mart", "7-eleven"
+    ],
+    "GIAI_TRI": [
+        "cinema", "movie", "cgv", "lotte cinema", "bhd", "game", "steam", "playstation", "netflix",
+        "spotify", "concert", "karaoke", "billiard", "bowling"
+    ],
+    "SUC_KHOE": [
+        "pharmacy", "drug", "hospital", "clinic", "dental", "medicine", "doctor", "gym", "fitness", "yoga"
+    ],
+    "NHA_O": [
+        "hotel", "hostel", "homestay", "resort", "airbnb", "apartment", "rent", "room"
+    ],
+    "HOA_DON": [
+        "electric", "water", "internet", "viettel", "vnpt", "fpt", "telecom", "utility", "bill"
+    ],
+    "HOC_TAP": [
+        "book", "bookstore", "course", "udemy", "coursera", "school", "tuition", "academy", "library"
+    ]
+}
+
+
 @app.on_event("startup")
 def load_models():
     """Tải trước các mô hình vào bộ nhớ RAM/VRAM khi server khởi động."""
@@ -188,11 +222,20 @@ async def scan_bill(file: UploadFile = File(...)):
         # 2. Bóc tách thông tin hóa đơn (Merchant, Total Amount, Date)
         parsed = parse_receipt_ocr_results(ocr_results)
         
-        # 3. Sử dụng PhoBERT dự đoán danh mục từ thông tin hóa đơn
+        # 3. Sử dụng PhoBERT kết hợp Bộ từ điển Song ngữ Anh - Việt để dự đoán danh mục
         cat_code = "MUA_SAM"
         confidence = 0.5
         
         text_for_phobert = f"{parsed['merchant']} {' '.join(parsed['all_lines'][1:6])}".strip()
+        text_lower = text_for_phobert.lower()
+
+        # Kiểm tra từ khóa thương hiệu / món hàng tiếng Anh phổ biến
+        english_match_code = None
+        for code, kw_list in ENGLISH_DOMAIN_KEYWORDS.items():
+            if any(kw in text_lower for kw in kw_list):
+                english_match_code = code
+                break
+
         if phobert_model and phobert_tokenizer and text_for_phobert:
             try:
                 inputs = phobert_tokenizer(
@@ -210,8 +253,14 @@ async def scan_bill(file: UploadFile = File(...)):
                     cat_code = phobert_model.config.id2label[pred_idx]
             except Exception as pe:
                 print(f"[!] Lỗi khi chạy PhoBERT cho hóa đơn: {pe}")
+
+        # Nếu có từ khóa tiếng Anh rõ rệt và PhoBERT chưa chắc chắn (< 0.75), ưu tiên danh mục tiếng Anh
+        if english_match_code and (confidence < 0.75 or cat_code == "MUA_SAM"):
+            cat_code = english_match_code
+            confidence = max(confidence, 0.90)
                 
         cat_name = CATEGORIES_NAMES_VN.get(cat_code, "Mua sắm & Đồ dùng")
+
 
         return {
             "success": True,
