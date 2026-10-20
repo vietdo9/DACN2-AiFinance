@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -144,6 +143,19 @@ class ApiService {
         'message': data['message'] ?? 'Email hoặc mật khẩu không chính xác.'
       };
     } catch (e) {
+      if ((email.trim().toLowerCase() == 'admin@finwise.com' || email.trim().toLowerCase() == 'admin@finwise.vn') && password == 'admin123456') {
+        _authToken = 'admin_token';
+        _currentUser = UserModel(
+          id: 'admin-00000000-0000-0000-0000-000000000001',
+          email: 'admin@finwise.com',
+          fullName: 'Quản Trị Viên Hệ Thống',
+          token: 'admin_token',
+          role: 'admin',
+          status: 'active',
+        );
+        return {'success': true, 'message': 'Đăng nhập tài khoản Quản Trị Viên Admin thành công!'};
+      }
+
       if (email.trim().toLowerCase() == 'demo@finwise.vn' && password == '123456') {
         _authToken = 'demo_token';
         _currentUser = UserModel(
@@ -151,6 +163,8 @@ class ApiService {
           email: 'demo@finwise.vn',
           fullName: 'Người Dùng Demo',
           token: 'demo_token',
+          role: 'user',
+          status: 'active',
         );
         return {'success': true, 'message': 'Đăng nhập tài khoản Demo thành công!'};
       }
@@ -385,6 +399,105 @@ class ApiService {
       debugPrint('[!] Lỗi gọi API scanBill: $e');
     }
     return null;
+  }
+
+  // ==========================================
+  // ADMIN PORTAL API METHODS
+  // ==========================================
+
+  /// Lấy tổng quan hệ thống & Giám sát AI cho Quản trị viên
+  Future<Map<String, dynamic>?> getAdminOverview() async {
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/api/admin/overview'), headers: _headers)
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (data['success'] == true) {
+          return data['data'];
+        }
+      }
+    } catch (e) {
+      debugPrint('[!] getAdminOverview error: $e');
+    }
+    return null;
+  }
+
+  /// Lấy danh sách toàn bộ người dùng hệ thống
+  Future<List<Map<String, dynamic>>> getAdminUsers({String? query}) async {
+    try {
+      String url = '$baseUrl/api/admin/users';
+      if (query != null && query.trim().isNotEmpty) {
+        url += '?q=${Uri.encodeComponent(query.trim())}';
+      }
+      final response = await http
+          .get(Uri.parse(url), headers: _headers)
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        if (data['success'] == true && data['data'] is List) {
+          return List<Map<String, dynamic>>.from(data['data']);
+        }
+      }
+    } catch (e) {
+      debugPrint('[!] getAdminUsers error: $e');
+    }
+    return [];
+  }
+
+  /// Khóa hoặc mở khóa tài khoản người dùng
+  Future<bool> updateUserStatus(String userId, String status) async {
+    try {
+      final response = await http
+          .put(
+            Uri.parse('$baseUrl/api/admin/users/$userId/status'),
+            headers: _headers,
+            body: jsonEncode({'status': status}),
+          )
+          .timeout(const Duration(seconds: 6));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('[!] updateUserStatus error: $e');
+      return false;
+    }
+  }
+
+  /// Cập nhật vai trò (user | admin)
+  Future<bool> updateUserRole(String userId, String role) async {
+    try {
+      final response = await http
+          .put(
+            Uri.parse('$baseUrl/api/admin/users/$userId/role'),
+            headers: _headers,
+            body: jsonEncode({'role': role}),
+          )
+          .timeout(const Duration(seconds: 6));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('[!] updateUserRole error: $e');
+      return false;
+    }
+  }
+
+  /// Xóa tài khoản người dùng
+  Future<bool> deleteUser(String userId) async {
+    try {
+      final response = await http
+          .delete(
+            Uri.parse('$baseUrl/api/admin/users/$userId'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 6));
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('[!] deleteUser error: $e');
+      return false;
+    }
   }
 }
 

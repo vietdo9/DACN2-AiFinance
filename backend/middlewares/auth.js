@@ -16,7 +16,7 @@ const verifyToken = (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        req.user = decoded; // { id, email }
+        req.user = decoded; // { id, email, role }
         next();
     } catch (err) {
         return res.status(403).json({
@@ -26,7 +26,21 @@ const verifyToken = (req, res, next) => {
     }
 };
 
+const verifyAdmin = (req, res, next) => {
+    verifyToken(req, res, () => {
+        if (req.user && (req.user.role === 'admin' || req.user.email === 'admin@finwise.com' || req.user.email === 'admin@finwise.vn')) {
+            return next();
+        }
+        return res.status(403).json({
+            success: false,
+            message: 'Quyền truy cập bị từ chối: Yêu cầu quyền Quản trị viên (Admin)'
+        });
+    });
+};
+
 module.exports = {
     verifyToken,
+    verifyAdmin,
     JWT_SECRET
 };
+

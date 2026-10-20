@@ -6,6 +6,7 @@ import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/transactions_screen.dart';
 import 'screens/ai_forecast_screen.dart';
+import 'screens/admin_dashboard_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -267,16 +268,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                         ),
                         const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            'Dữ liệu Riêng tư & Bảo mật',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF10B981), fontWeight: FontWeight.w600),
-                          ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: (user?.isAdmin == true ? const Color(0xFF4F46E5) : const Color(0xFF10B981)).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                user?.isAdmin == true ? 'Quản Trị Viên (Admin)' : 'Dữ liệu Riêng tư & Bảo mật',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: user?.isAdmin == true ? const Color(0xFF4F46E5) : const Color(0xFF10B981),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -285,7 +294,74 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            // Banner Truy cập Admin Portal (chỉ hiện cho Quản trị viên)
+            if (user?.isAdmin == true) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1E1B4B), Color(0xFF4338CA)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4338CA).withValues(alpha: 0.25),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.admin_panel_settings, color: Colors.white, size: 26),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Trung Tâm Quản Trị Hệ Thống',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Giám sát AI Microservices & Phân quyền User',
+                                  style: TextStyle(color: Color(0xFFC7D2FE), fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.arrow_forward_ios, color: Colors.white70, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
 
             // Nhóm tính năng Quản lý
             Container(

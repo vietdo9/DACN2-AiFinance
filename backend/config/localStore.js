@@ -55,6 +55,32 @@ const localStore = {
         writeData(USERS_FILE, users);
         return user;
     },
+    updateUser: (id, updatedFields) => {
+        let users = readData(USERS_FILE);
+        const idx = users.findIndex(u => u.id === id);
+        if (idx !== -1) {
+            users[idx] = { ...users[idx], ...updatedFields, updated_at: new Date().toISOString() };
+            writeData(USERS_FILE, users);
+            return users[idx];
+        }
+        return null;
+    },
+    deleteUser: (id) => {
+        let users = readData(USERS_FILE);
+        const target = users.find(u => u.id === id);
+        if (target) {
+            users = users.filter(u => u.id !== id);
+            writeData(USERS_FILE, users);
+            // Đồng thời dọn dẹp ví và giao dịch của user này
+            let txs = readData(TRANSACTIONS_FILE).filter(t => t.user_id !== id);
+            writeData(TRANSACTIONS_FILE, txs);
+            let wts = readData(WALLETS_FILE).filter(w => w.user_id !== id);
+            writeData(WALLETS_FILE, wts);
+            return target;
+        }
+        return null;
+    },
+
 
     // WALLETS
     getWallets: (userId) => {
@@ -155,7 +181,11 @@ const localStore = {
             }
         }
         return null;
-    }
+    },
+
+    // ADMIN HELPERS
+    getAllTransactions: () => readData(TRANSACTIONS_FILE),
+    getAllWallets: () => readData(WALLETS_FILE)
 };
 
 module.exports = localStore;

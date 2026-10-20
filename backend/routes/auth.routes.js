@@ -140,7 +140,13 @@ router.post('/login', async (req, res) => {
                 if (!error && user) {
                     const isMatch = await bcrypt.compare(password, user.password_hash);
                     if (isMatch) {
-                        foundUser = { id: user.id, email: user.email, full_name: user.full_name };
+                        foundUser = {
+                            id: user.id,
+                            email: user.email,
+                            full_name: user.full_name,
+                            role: user.role || (normalizedEmail === 'admin@finwise.com' || normalizedEmail === 'admin@finwise.vn' ? 'admin' : 'user'),
+                            status: user.status || 'active'
+                        };
                     }
                 }
             } catch (sbErr) {
@@ -154,25 +160,60 @@ router.post('/login', async (req, res) => {
             if (localUser) {
                 const isMatch = await bcrypt.compare(password, localUser.password_hash);
                 if (isMatch) {
-                    foundUser = { id: localUser.id, email: localUser.email, full_name: localUser.full_name };
+                    foundUser = {
+                        id: localUser.id,
+                        email: localUser.email,
+                        full_name: localUser.full_name,
+                        role: localUser.role || (normalizedEmail === 'admin@finwise.com' || normalizedEmail === 'admin@finwise.vn' ? 'admin' : 'user'),
+                        status: localUser.status || 'active'
+                    };
                 }
             }
         }
 
-        // 3. Hỗ trợ tài khoản Demo mặc định
+        // 3. Hỗ trợ tài khoản Quản trị viên (Admin) mặc định
+        if (!foundUser && (normalizedEmail === 'admin@finwise.com' || normalizedEmail === 'admin@finwise.vn') && password === 'admin123456') {
+            foundUser = {
+                id: 'admin-00000000-0000-0000-0000-000000000001',
+                email: normalizedEmail,
+                full_name: 'Quản Trị Viên Hệ Thống',
+                role: 'admin',
+                status: 'active'
+            };
+        }
+
+        // 4. Hỗ trợ tài khoản Demo mặc định
         if (!foundUser && normalizedEmail === 'demo@finwise.vn' && password === '123456') {
-            foundUser = { id: '00000000-0000-0000-0000-000000000001', email: 'demo@finwise.vn', full_name: 'Người Dùng Demo' };
+            foundUser = {
+                id: '00000000-0000-0000-0000-000000000001',
+                email: 'demo@finwise.vn',
+                full_name: 'Người Dùng Demo',
+                role: 'user',
+                status: 'active'
+            };
         }
 
         if (!foundUser) {
             return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không chính xác' });
         }
 
-        const token = jwt.sign({ id: foundUser.id, email: foundUser.email }, JWT_SECRET, { expiresIn: '7d' });
+        // Kiểm tra xem tài khoản có bị khóa không
+        if (foundUser.status === 'suspended') {
+            return res.status(403).json({
+                success: false,
+                message: 'Tài khoản của bạn đã bị khóa bởi Quản trị viên. Vui lòng liên hệ hỗ trợ.'
+            });
+        }
+
+        const token = jwt.sign(
+            { id: foundUser.id, email: foundUser.email, role: foundUser.role },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
 
         return res.json({
             success: true,
-            message: 'Đăng nhập thành công',
+            message: 'Đăng nhập thành công' + (foundUser.role === 'admin' ? ' (Quyền Quản Trị Viên Admin)' : ''),
             data: {
                 user: foundUser,
                 token
@@ -191,12 +232,21 @@ router.get('/me', verifyToken, async (req, res) => {
             try {
                 const { data: user, error } = await supabase
                     .from('users')
-                    .select('id, email, full_name, avatar_url, created_at')
+                    .select('id, email, full_name, avatar_url, role, status, created_at')
                     .eq('id', req.user.id)
                     .maybeSingle();
 
                 if (!error && user) {
-                    return res.json({ success: true, data: { user } });
+                    return res.json({ 
+                        success: true, 
+                        data: { 
+                            user: {
+                                ...user,
+                                role: user.role || (user.email === 'admin@finwise.com' || user.email === 'admin@finwise.vn' ? 'admin' : 'user'),
+                                status: user.status || 'active'
+                            } 
+                        } 
+                    });
                 }
             } catch (_) {}
         }
@@ -211,13 +261,24 @@ router.get('/me', verifyToken, async (req, res) => {
                         id: localUser.id,
                         email: localUser.email,
                         full_name: localUser.full_name,
+                        role: localUser.role || (localUser.email === 'admin@finwise.com' || localUser.email === 'admin@finwise.vn' ? 'admin' : 'user'),
+                        status: localUser.status || 'active',
                         created_at: localUser.created_at
                     } 
                 } 
             });
         }
 
-        return res.json({ success: true, data: { user: req.user } });
+        return res.json({ 
+            success: true, 
+            data: { 
+                user: {
+                    ...req.user,
+                    role: req.user.role || (req.user.email === 'admin@finwise.com' ? 'admin' : 'user'),
+                    status: 'active'
+                } 
+            } 
+        });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }

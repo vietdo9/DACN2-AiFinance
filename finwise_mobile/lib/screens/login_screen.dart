@@ -70,6 +70,12 @@ class _LoginScreenState extends State<LoginScreen> {
     _handleLogin();
   }
 
+  void _loginAdmin() {
+    _emailController.text = 'admin@finwise.com';
+    _passwordController.text = 'admin123456';
+    _handleLogin();
+  }
+
   void _showServerConfigDialog() {
     final ipController = TextEditingController(text: ApiService().baseUrl);
     showDialog(
@@ -357,6 +363,28 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             style: OutlinedButton.styleFrom(
                               side: BorderSide(color: Colors.grey.shade300),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Nút Đăng nhập Admin
+                        SizedBox(
+                          width: double.infinity,
+                          height: 46,
+                          child: OutlinedButton.icon(
+                            onPressed: _isLoading ? null : _loginAdmin,
+                            icon: const Icon(Icons.shield_outlined, size: 18, color: Color(0xFF4F46E5)),
+                            label: const Text(
+                              'Đăng nhập Quản Trị Viên (admin@finwise.com)',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF4F46E5)),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFC7D2FE)),
+                              backgroundColor: const Color(0xFFEEF2FF),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),

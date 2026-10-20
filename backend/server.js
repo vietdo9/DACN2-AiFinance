@@ -8,6 +8,7 @@ const walletRoutes = require('./routes/wallet.routes');
 const transactionRoutes = require('./routes/transaction.routes');
 const aiRoutes = require('./routes/ai.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
+const adminRoutes = require('./routes/admin.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +24,7 @@ app.use('/api/wallets', walletRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Endpoint kiểm tra hoạt động (Health Check)
 app.get('/', (req, res) => {
@@ -35,7 +37,8 @@ app.get('/', (req, res) => {
             wallets: '/api/wallets (list, create)',
             transactions: '/api/transactions (list, create with AI auto-tag, categories)',
             ai: '/api/ai (classify, forecast, user-forecast)',
-            analytics: '/api/analytics (summary, breakdown)'
+            analytics: '/api/analytics (summary, breakdown)',
+            admin: '/api/admin (overview, users, status, role)'
         },
         ai_service_url: process.env.AI_SERVICE_URL || 'http://localhost:8000'
     });
