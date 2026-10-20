@@ -79,7 +79,7 @@ class ApiService {
               'password': password,
             }),
           )
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 20));
 
       final data = jsonDecode(response.body);
 
@@ -120,7 +120,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'email': email.trim().toLowerCase(), 'password': password}),
           )
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 20));
 
       final data = jsonDecode(response.body);
 
