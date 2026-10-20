@@ -39,6 +39,8 @@ class NotificationSyncService {
     'com.vnpay.agribank',
     'vn.timo',
     'vn.be.cake',
+    'vnpay.smartacccount',
+    'com.vnpay',
   };
 
   /// Kiểm tra xem người dùng đã cấp quyền Notification Access chưa
@@ -101,7 +103,9 @@ class NotificationSyncService {
             lower.contains('zalopay') ||
             lower.contains('vietcombank') ||
             lower.contains('mbbank') ||
-            lower.contains('techcombank');
+            lower.contains('techcombank') ||
+            lower.contains('vnpay') ||
+            lower.contains('vn pay');
 
         if (!isKnownPackage && !hasFinancialKeywords) {
           return; // Không phải thông báo tài chính
@@ -186,6 +190,8 @@ class NotificationSyncService {
       source = 'MB Bank';
     } else if (packageName.contains('techcombank')) {
       source = 'Techcombank';
+    } else if (packageName.contains('vnpay') || lower.contains('vnpay') || lower.contains('vn pay')) {
+      source = 'Ví VNPAY';
     }
 
     // 1. Phân loại Thu / Chi
@@ -263,7 +269,7 @@ class NotificationSyncService {
 
     // 4. Gợi ý Danh mục mặc định
     String categoryCode = type == 'income' ? 'THU_NHAP' : 'AN_UONG';
-    if (source == 'ShopeePay') {
+    if (source == 'ShopeePay' || source == 'Ví VNPAY') {
       categoryCode = type == 'income' ? 'THU_NHAP' : 'MUA_SAM';
     }
 
