@@ -154,6 +154,25 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   _pickAndScanBill(ImageSource.gallery);
                 },
               ),
+              const Divider(height: 16),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.content_paste_go_rounded, color: Color(0xFFF59E0B), size: 24),
+                ),
+                title: const Text('Dán SMS / Thông báo Ngân hàng', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                subtitle: const Text('Tự bóc tách số tiền, giờ ăn trưa/tối và gán danh mục'),
+                trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showSmartPasteDialog();
+                },
+              ),
               const SizedBox(height: 10),
             ],
           ),
@@ -161,6 +180,170 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       ),
     );
   }
+
+  // Dialog dán tin nhắn ngân hàng / SMS
+  void _showSmartPasteDialog() {
+    final smsController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.auto_awesome, color: Color(0xFF4F46E5), size: 20),
+            SizedBox(width: 8),
+            Text('Dán Tin Nhắn Ngân Hàng', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Dán nội dung tin nhắn SMS hoặc thông báo chuyển tiền (Vietcombank, MB, Techcombank, MoMo...):',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: smsController,
+              maxLines: 4,
+              decoration: InputDecoration(
+                hintText: 'Ví dụ:\nTK 102345 tai VCB -45,000VND luc 12:15 20/10/2026. Ref: tien com trua',
+                hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                contentPadding: const EdgeInsets.all(12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dCtx),
+            child: const Text('Hủy'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              final raw = smsController.text.trim();
+              if (raw.isNotEmpty) {
+                Navigator.pop(dCtx);
+                _parseAndApplyBankSms(raw);
+              }
+            },
+            child: const Text('Phân Tích & Điền', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Tự động bóc tách tin nhắn ngân hàng & áp dụng quy tắc giờ giấc
+  Future<void> _parseAndApplyBankSms(String raw) async {
+    final textLower = raw.toLowerCase();
+
+    // 1. Phân biệt Loại: Chi Tiêu hay Thu Nhập
+    String detectedType = 'expense';
+    if (raw.contains('+') || textLower.contains('cong') || textLower.contains('nhan duoc') || textLower.contains('credit')) {
+      detectedType = 'income';
+    }
+
+    // 2. Trích xuất số tiền: tìm chuỗi số có dấu chấm/phẩy hoặc số thuần
+    double detectedAmount = 0;
+    final amtMatch = RegExp(r'(?:[-+]|\b)(?:[0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false).firstMatch(raw);
+    if (amtMatch != null) {
+      final cleaned = amtMatch.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
+      final parsed = double.tryParse(cleaned);
+      if (parsed != null && parsed >= 1000) {
+        detectedAmount = parsed;
+      }
+    }
+
+    // 3. Trích xuất ngày tháng
+    DateTime detectedDate = DateTime.now();
+    final dateMatch = RegExp(r'\b(0?[1-9]|[12][0-9]|3[01])[\/\-\.](0?[1-9]|1[012])[\/\-\.](202\d)\b').firstMatch(raw);
+    if (dateMatch != null) {
+      try {
+        final d = int.parse(dateMatch.group(1)!);
+        final m = int.parse(dateMatch.group(2)!);
+        final y = int.parse(dateMatch.group(3)!);
+        detectedDate = DateTime(y, m, d);
+      } catch (_) {}
+    }
+
+    // 4. Trích xuất giờ và áp dụng Quy tắc Ngữ cảnh thời gian (Time Heuristics)
+    int detectedHour = detectedDate.hour;
+    final timeMatch = RegExp(r'\b([0-1]?[0-9]|2[0-3])[:h]([0-5][0-9])\b').firstMatch(raw);
+    if (timeMatch != null) {
+      detectedHour = int.tryParse(timeMatch.group(1)!) ?? detectedHour;
+    }
+
+    // 5. Trích xuất ghi chú / nội dung giao dịch
+    String detectedNote = '';
+    final ndMatch = RegExp(r'(?:nd|noidung|noi dung|ref|tai|cho|toi)[:\s]+([^.]+)', caseSensitive: false).firstMatch(raw);
+    if (ndMatch != null) {
+      detectedNote = ndMatch.group(1)!.trim();
+    } else {
+      detectedNote = raw.split('\n').first.trim();
+      if (detectedNote.length > 40) detectedNote = detectedNote.substring(0, 40);
+    }
+
+    // 6. Gợi ý Danh mục thông minh (Kết hợp Time Heuristics + PhoBERT)
+    String suggestedCategory = detectedType == 'income' ? 'THU_NHAP' : 'AN_UONG';
+    
+    // Áp dụng quy tắc giờ ăn nếu là khoản chi
+    bool isMealTime = (detectedHour >= 11 && detectedHour <= 13) || (detectedHour >= 18 && detectedHour <= 20) || (detectedHour >= 7 && detectedHour <= 9);
+    if (detectedType == 'expense' && isMealTime && detectedAmount <= 200000) {
+      suggestedCategory = 'AN_UONG';
+    }
+
+    setState(() {
+      _type = detectedType;
+      if (detectedAmount > 0) {
+        _amountController.text = detectedAmount.toInt().toString();
+      }
+      _noteController.text = detectedNote;
+      _selectedDate = detectedDate;
+      if (_categories.any((c) => c.code == suggestedCategory)) {
+        _selectedCategoryCode = suggestedCategory;
+      }
+      _aiFeedbackMessage = '✨ Đã bóc tách tin nhắn: ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ (Gợi ý: ${detectedHour}h - Giờ ăn uống)';
+    });
+
+    // Nếu có ghi chú, gọi tiếp PhoBERT hoặc bộ nhớ cá nhân hóa để kiểm tra chuẩn hơn
+    if (detectedNote.isNotEmpty) {
+      final aiRes = await ApiService().classifyWithAi(detectedNote);
+      if (mounted && aiRes != null && aiRes['category_code'] != null) {
+        final catCode = aiRes['category_code'];
+        if (_categories.any((c) => c.code == catCode)) {
+          setState(() {
+            _selectedCategoryCode = catCode;
+            _aiFeedbackMessage = '✨ Đã nhận diện: $detectedNote (${aiRes['category_name']})';
+          });
+        }
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF10B981),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          content: Text('✨ Đã tự động điền: ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ - $detectedNote'),
+        ),
+      );
+    }
+  }
+
 
   // Thực hiện chọn ảnh và gửi sang Backend / AI Service
   Future<void> _pickAndScanBill(ImageSource source) async {
@@ -313,7 +496,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF4F46E5).withOpacity(0.3),
+                    color: const Color(0xFF4F46E5).withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -331,7 +514,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: _isScanningBill
@@ -340,7 +523,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                                   height: 24,
                                   child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                                 )
-                              : const Icon(Icons.document_scanner_rounded, color: Colors.white, size: 26),
+                              : const Icon(Icons.auto_awesome, color: Colors.white, size: 26),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -348,7 +531,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _isScanningBill ? 'Đang quét & phân tích bill...' : 'Quét Hóa Đơn Tự Động (AI OCR)',
+                                _isScanningBill ? 'Đang quét & phân tích bill...' : 'Trợ Lý Nhập Liệu AI (OCR & SMS)',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
@@ -359,9 +542,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                               Text(
                                 _isScanningBill
                                     ? 'EasyOCR & PhoBERT đang trích xuất dữ liệu...'
-                                    : 'Chụp hoặc tải ảnh bill để tự điền tiền & danh mục',
+                                    : 'Quét ảnh hóa đơn hoặc dán SMS ngân hàng để tự điền',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.85),
+                                  color: Colors.white.withValues(alpha: 0.85),
                                   fontSize: 11,
                                 ),
                               ),
@@ -376,6 +559,59 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 ),
               ),
             ),
+
+            // Các nút tắt thao tác thông minh
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: _isScanningBill ? null : _showScanBillOptions,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFC7D2FE)),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.camera_alt_outlined, color: Color(0xFF4F46E5), size: 16),
+                          SizedBox(width: 6),
+                          Text('Quét Bill (OCR)', style: TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.bold, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: _showSmartPasteDialog,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.content_paste_go_rounded, color: Color(0xFFD97706), size: 16),
+                          SizedBox(width: 6),
+                          Text('Dán SMS Ngân Hàng', style: TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
 
             // 1. Chuyển đổi Loại: Chi Tiêu / Thu Nhập
             Container(

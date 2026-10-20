@@ -286,6 +286,49 @@ class ApiService {
     }
   }
 
+  /// 8.1 Cập nhật / Đổi danh mục giao dịch đã lưu
+  Future<bool> updateTransaction({
+    required String id,
+    double? amount,
+    String? note,
+    String? type,
+    String? categoryCode,
+    String? transactionDate,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/transactions/$id'),
+        headers: _headers,
+        body: jsonEncode({
+          ...? (amount != null ? {'amount': amount} : null),
+          ...? (note != null ? {'note': note} : null),
+          ...? (type != null ? {'type': type} : null),
+          ...? (categoryCode != null ? {'category_code': categoryCode} : null),
+          ...? (transactionDate != null ? {'transaction_date': transactionDate} : null),
+        }),
+      ).timeout(const Duration(seconds: 5));
+
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 8.2 Xóa giao dịch
+  Future<bool> deleteTransaction(String id) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/transactions/$id'),
+        headers: _headers,
+      ).timeout(const Duration(seconds: 5));
+
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+
   /// 9. Lấy Dự báo 7 ngày từ mạng LSTM AI (Độc lập theo dữ liệu thật của tài khoản)
   Future<ForecastModel> getAiForecast({bool isDemo = false}) async {
     try {

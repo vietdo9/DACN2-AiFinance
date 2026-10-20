@@ -21,6 +21,9 @@ ensureFile(USERS_FILE);
 ensureFile(WALLETS_FILE);
 ensureFile(TRANSACTIONS_FILE);
 
+const RULES_FILE = path.join(DATA_DIR, 'local_category_rules.json');
+ensureFile(RULES_FILE);
+
 function readData(filePath) {
     try {
         ensureFile(filePath);
@@ -85,11 +88,29 @@ const localStore = {
         userTxs.sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date));
         return userTxs.slice(0, parseInt(limit));
     },
+    findTransactionById: (id, userId) => {
+        const txs = readData(TRANSACTIONS_FILE);
+        return txs.find(t => t.id === id && t.user_id === userId);
+    },
     addTransaction: (tx) => {
         const txs = readData(TRANSACTIONS_FILE);
         txs.unshift(tx);
         writeData(TRANSACTIONS_FILE, txs);
         return tx;
+    },
+    updateTransaction: (id, userId, updatedFields) => {
+        let txs = readData(TRANSACTIONS_FILE);
+        const idx = txs.findIndex(t => t.id === id && t.user_id === userId);
+        if (idx !== -1) {
+            txs[idx] = {
+                ...txs[idx],
+                ...updatedFields,
+                updated_at: new Date().toISOString()
+            };
+            writeData(TRANSACTIONS_FILE, txs);
+            return txs[idx];
+        }
+        return null;
     },
     deleteTransaction: (id, userId) => {
         let txs = readData(TRANSACTIONS_FILE);
@@ -100,7 +121,42 @@ const localStore = {
             return target;
         }
         return null;
+    },
+
+    // USER CATEGORY MEMORY RULES (Bộ nhớ cá nhân hóa học từ thao tác của người dùng)
+    saveUserCategoryRule: (userId, keyword, categoryCode) => {
+        if (!keyword || keyword.trim().length < 2 || !categoryCode) return;
+        const normKey = keyword.trim().toLowerCase();
+        let rules = readData(RULES_FILE);
+        const existingIdx = rules.findIndex(r => r.user_id === userId && r.keyword === normKey);
+        if (existingIdx !== -1) {
+            rules[existingIdx].category_code = categoryCode;
+            rules[existingIdx].updated_at = new Date().toISOString();
+        } else {
+            rules.push({
+                id: `rule-${Date.now()}`,
+                user_id: userId,
+                keyword: normKey,
+                category_code: categoryCode,
+                created_at: new Date().toISOString()
+            });
+        }
+        writeData(RULES_FILE, rules);
+    },
+    findUserCategoryRule: (userId, text) => {
+        if (!text || !text.trim()) return null;
+        const normText = text.trim().toLowerCase();
+        const rules = readData(RULES_FILE).filter(r => r.user_id === userId);
+        // Sắp xếp các keyword dài nhất trước để so khớp chính xác nhất
+        rules.sort((a, b) => b.keyword.length - a.keyword.length);
+        for (const rule of rules) {
+            if (normText.includes(rule.keyword)) {
+                return rule;
+            }
+        }
+        return null;
     }
 };
 
 module.exports = localStore;
+

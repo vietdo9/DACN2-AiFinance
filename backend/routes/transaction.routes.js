@@ -122,23 +122,37 @@ router.post('/', verifyToken, async (req, res) => {
         let ai_predicted = false;
         let ai_confidence = null;
 
-        // Nếu người dùng không chọn danh mục nhưng có nhập ghi chú, gọi PhoBERT AI tự đoán!
+        // Nếu người dùng không chọn danh mục nhưng có nhập ghi chú
         if (!category_code && note && note.trim().length > 0) {
-            try {
-                const aiResult = await AiService.classifyTransaction(note);
-                if (aiResult?.category_code) {
-                    category_code = aiResult.category_code;
-                    ai_predicted = true;
-                    ai_confidence = aiResult.confidence;
+            // 1. Kiểm tra bộ nhớ cá nhân hóa của người dùng trước
+            const userRule = localStore.findUserCategoryRule(req.user.id, note);
+            if (userRule) {
+                category_code = userRule.category_code;
+                ai_predicted = true;
+                ai_confidence = 1.0;
+            } else {
+                // 2. Nếu chưa từng gặp, gọi PhoBERT AI tự đoán
+                try {
+                    const aiResult = await AiService.classifyTransaction(note);
+                    if (aiResult?.category_code) {
+                        category_code = aiResult.category_code;
+                        ai_predicted = true;
+                        ai_confidence = aiResult.confidence;
+                    }
+                } catch (aiErr) {
+                    console.warn('[!] Không thể gọi PhoBERT AI tự phân loại:', aiErr.message);
+                    category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
                 }
-            } catch (aiErr) {
-                console.warn('[!] Không thể gọi PhoBERT AI tự phân loại:', aiErr.message);
-                category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
             }
         }
 
         if (!category_code) {
             category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
+        }
+
+        // Lưu vào bộ nhớ cá nhân hóa để học thói quen người dùng
+        if (note && note.trim().length >= 2 && category_code) {
+            localStore.saveUserCategoryRule(req.user.id, note, category_code);
         }
 
         const catInfo = DEFAULT_CATEGORIES.find(c => c.code === category_code) || {
@@ -231,7 +245,122 @@ router.post('/', verifyToken, async (req, res) => {
     }
 });
 
-// 4. Xóa giao dịch (Chỉ được xóa giao dịch của chính mình)
+// 4. Cập nhật / Đổi danh mục giao dịch đã lưu (PUT /api/transactions/:id)
+router.put('/:id', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { amount, note, type, category_code, transaction_date } = req.body;
+
+        // 1. Tìm giao dịch cũ để kiểm tra quyền và tính bù trừ số dư
+        let oldTx = null;
+        if (isSupabaseConfigured()) {
+            try {
+                const { data } = await supabase
+                    .from('transactions')
+                    .select('*')
+                    .eq('id', id)
+                    .eq('user_id', req.user.id)
+                    .single();
+                if (data) oldTx = data;
+            } catch (_) {}
+        }
+        if (!oldTx) {
+            oldTx = localStore.findTransactionById(id, req.user.id);
+        }
+
+        if (!oldTx) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy giao dịch cần chỉnh sửa' });
+        }
+
+        const newAmount = amount !== undefined ? parseFloat(amount) : parseFloat(oldTx.amount);
+        const newType = type || oldTx.type;
+        const newCatCode = category_code || oldTx.category_code;
+        const newNote = note !== undefined ? note : oldTx.note;
+        const newDate = transaction_date || oldTx.transaction_date;
+
+        const catInfo = DEFAULT_CATEGORIES.find(c => c.code === newCatCode) || {
+            name: newCatCode,
+            icon: 'category',
+            color: '#6B7280'
+        };
+
+        // Tính toán bù trừ chênh lệch số dư ví (delta)
+        const oldEffect = oldTx.type === 'income' ? parseFloat(oldTx.amount) : -parseFloat(oldTx.amount);
+        const newEffect = newType === 'income' ? newAmount : -newAmount;
+        const delta = newEffect - oldEffect;
+
+        let updatedTx = null;
+
+        // Cập nhật Supabase
+        if (isSupabaseConfigured()) {
+            try {
+                const { data: tx, error } = await supabase
+                    .from('transactions')
+                    .update({
+                        amount: newAmount,
+                        type: newType,
+                        category_code: newCatCode,
+                        note: newNote,
+                        transaction_date: newDate,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', id)
+                    .eq('user_id', req.user.id)
+                    .select()
+                    .single();
+
+                if (!error && tx) {
+                    updatedTx = {
+                        ...tx,
+                        category_name: catInfo.name,
+                        categories: catInfo
+                    };
+
+                    if (oldTx.wallet_id && delta !== 0) {
+                        await supabase.rpc('update_wallet_balance', {
+                            p_wallet_id: oldTx.wallet_id,
+                            p_amount: delta
+                        }).catch(() => {});
+                    }
+                }
+            } catch (_) {}
+        }
+
+        // Cập nhật LocalStore
+        const localUpdated = localStore.updateTransaction(id, req.user.id, {
+            amount: newAmount,
+            type: newType,
+            category_code: newCatCode,
+            category_name: catInfo.name,
+            categories: catInfo,
+            note: newNote,
+            transaction_date: newDate
+        });
+
+        if (!updatedTx) {
+            updatedTx = localUpdated;
+            if (oldTx.wallet_id && delta !== 0) {
+                localStore.updateWalletBalance(oldTx.wallet_id, delta);
+            }
+        }
+
+        // HỌC TỪ PHẢN HỒI: Lưu quy tắc ưu tiên cho người dùng nếu có ghi chú
+        if (newNote && newNote.trim().length >= 2 && newCatCode) {
+            localStore.saveUserCategoryRule(req.user.id, newNote, newCatCode);
+        }
+
+        return res.json({
+            success: true,
+            message: 'Cập nhật giao dịch thành công!',
+            data: updatedTx
+        });
+    } catch (err) {
+        console.error('[!] Lỗi cập nhật giao dịch:', err.message);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 5. Xóa giao dịch (Chỉ được xóa giao dịch của chính mình)
 router.delete('/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
