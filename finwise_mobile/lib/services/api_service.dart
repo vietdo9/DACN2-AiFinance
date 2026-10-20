@@ -21,16 +21,12 @@ class ApiService {
   bool get isLoggedIn => _currentUser != null && _authToken != null;
   String? get currentToken => _authToken;
 
-  // Lấy Base URL của Backend Node.js
+  // Lấy Base URL của Backend Node.js (Mặc định gọi Cloud Render 24/7)
   String get baseUrl {
     if (_customBaseUrl != null && _customBaseUrl!.trim().isNotEmpty) {
       return _customBaseUrl!.trim();
     }
-    if (kIsWeb) return 'http://localhost:5000';
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:5000';
-    }
-    return 'http://localhost:5000';
+    return 'https://dacn2-aifinance.onrender.com';
   }
 
   void setCustomBaseUrl(String url) async {
