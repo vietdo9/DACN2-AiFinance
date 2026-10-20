@@ -1,3 +1,5 @@
 -keep class io.flutter.plugins.sharedpreferences.** { *; }
 -keep class io.flutter.plugins.** { *; }
 -dontwarn io.flutter.plugins.sharedpreferences.**
+-keep class notification.listener.service.** { *; }
+-dontwarn notification.listener.service.**

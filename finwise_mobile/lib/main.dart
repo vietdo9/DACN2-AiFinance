@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'services/api_service.dart';
+import 'services/notification_sync_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/transactions_screen.dart';
@@ -14,6 +15,12 @@ void main() async {
   
   // Kiểm tra phiên đăng nhập đã lưu
   await ApiService().checkSavedSession();
+
+  // Khởi động lắng nghe thông báo biến động số dư (ShopeePay, MoMo, Bank)
+  if (ApiService().isLoggedIn) {
+    NotificationSyncService().startListening();
+    NotificationSyncService().checkPermission();
+  }
 
   runApp(const FinWiseApp());
 }
@@ -49,8 +56,58 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    NotificationSyncService().startListening();
+    NotificationSyncService().checkPermission();
+    NotificationSyncService().lastCapturedMessage.addListener(_onTransactionCaptured);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    NotificationSyncService().lastCapturedMessage.removeListener(_onTransactionCaptured);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Khi quay lại từ Cài đặt hệ thống, kiểm tra lại quyền ngay
+      NotificationSyncService().checkPermission();
+    }
+  }
+
+  void _onTransactionCaptured() {
+    final msg = NotificationSyncService().lastCapturedMessage.value;
+    if (msg != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF10B981),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          content: Row(
+            children: [
+              const Icon(Icons.bolt, color: Colors.white, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  msg,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -407,6 +464,44 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     onTap: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Hệ thống có 10 danh mục chuẩn tích hợp PhoBERT AI.')),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: NotificationSyncService().isPermissionEnabled,
+                    builder: (context, isEnabled, child) {
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: isEnabled ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
+                          child: Icon(
+                            Icons.notifications_active,
+                            color: isEnabled ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                            size: 20,
+                          ),
+                        ),
+                        title: const Text('Tự Động Bắt Biến Động Số Dư', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        subtitle: Text(
+                          isEnabled
+                              ? '🟢 Đang hoạt động (ShopeePay, MoMo, Bank)'
+                              : '🔴 Nhấn để cấp quyền đọc thông báo',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isEnabled ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        trailing: Switch(
+                          value: isEnabled,
+                          activeThumbColor: const Color(0xFF4F46E5),
+                          onChanged: (val) async {
+                            await NotificationSyncService().requestPermission();
+                          },
+                        ),
+                        onTap: () async {
+                          await NotificationSyncService().requestPermission();
+                        },
                       );
                     },
                   ),

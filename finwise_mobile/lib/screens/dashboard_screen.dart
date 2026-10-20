@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/api_service.dart';
+import '../services/notification_sync_service.dart';
 import '../models/transaction_model.dart';
 import 'add_transaction_screen.dart';
 
@@ -23,6 +24,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadData();
+    NotificationSyncService().checkPermission();
+    NotificationSyncService().lastCapturedMessage.addListener(_onCapturedTransaction);
+  }
+
+  @override
+  void dispose() {
+    NotificationSyncService().lastCapturedMessage.removeListener(_onCapturedTransaction);
+    super.dispose();
+  }
+
+  void _onCapturedTransaction() {
+    if (mounted) {
+      _loadData();
+    }
   }
 
   Future<void> _loadData() async {
@@ -93,7 +108,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               // 1. Thẻ Số Dư Cao Cấp (Gradient Card)
               _buildBalanceCard(totalBalance, income, expense),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+
+              // Banner Trạng Thái Bắt Thông Báo Tự Động (ShopeePay, MoMo, Bank)
+              _buildNotificationListenerBanner(),
+
+              const SizedBox(height: 16),
 
               // 2. Banner Trí Tuệ Nhân Tạo (AI Smart Insight)
               _buildAiInsightBanner(),
@@ -451,4 +471,105 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }).toList(),
     );
   }
+
+  /// Banner hiển thị trạng thái lắng nghe thông báo biến động số dư
+  Widget _buildNotificationListenerBanner() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: NotificationSyncService().isPermissionEnabled,
+      builder: (context, isEnabled, child) {
+        if (!isEnabled) {
+          return Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFEF3C7), Color(0xFFFFFBEB)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFF59E0B).withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.notifications_active, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tự Động Bắt Thông Báo Biến Động',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Cấp quyền để FinWise tự động lưu giao dịch từ ShopeePay, MoMo, VCB, MB...',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF78350F)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                  ),
+                  onPressed: () async {
+                    await NotificationSyncService().requestPermission();
+                  },
+                  child: const Text('Bật Ngay', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFECFDF5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFA7F3D0)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Tự động bắt thông báo ShopeePay & Ngân hàng: Đang hoạt động',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF065F46)),
+                ),
+              ),
+              const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
+
