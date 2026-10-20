@@ -22,7 +22,10 @@ class ApiService {
 
   // Lấy Base URL của Backend Node.js (Mặc định gọi Cloud Render 24/7)
   String get baseUrl {
-    if (_customBaseUrl != null && _customBaseUrl!.trim().isNotEmpty) {
+    if (_customBaseUrl != null &&
+        _customBaseUrl!.trim().isNotEmpty &&
+        !_customBaseUrl!.contains('localhost') &&
+        !_customBaseUrl!.contains('127.0.0.1')) {
       return _customBaseUrl!.trim();
     }
     return 'https://dacn2-aifinance.onrender.com';
@@ -106,7 +109,7 @@ class ApiService {
     } catch (e) {
       return {
         'success': false,
-        'message': 'Không thể kết nối tới máy chủ ($baseUrl). Vui lòng đảm bảo Backend đang chạy.'
+        'message': 'Không thể kết nối máy chủ ($baseUrl). Chi tiết: $e'
       };
     }
   }
@@ -171,7 +174,7 @@ class ApiService {
 
       return {
         'success': false,
-        'message': 'Không thể kết nối máy chủ ($baseUrl).'
+        'message': 'Không thể kết nối máy chủ ($baseUrl). Chi tiết: $e'
       };
     }
   }
