@@ -94,9 +94,13 @@ class ApiService {
           _authToken = token;
           _currentUser = UserModel.fromJson(userData, token: token);
 
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('finwise_token', token);
-          await prefs.setString('finwise_user', jsonEncode(_currentUser!.toJson()));
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('finwise_token', token);
+            await prefs.setString('finwise_user', jsonEncode(_currentUser!.toJson()));
+          } catch (prefErr) {
+            debugPrint('[!] Không thể lưu SharedPreferences: $prefErr');
+          }
 
           return {'success': true, 'message': data['message'] ?? 'Đăng ký tài khoản thành công!'};
         }
@@ -134,9 +138,13 @@ class ApiService {
         _authToken = token;
         _currentUser = UserModel.fromJson(userData, token: token);
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('finwise_token', token);
-        await prefs.setString('finwise_user', jsonEncode(_currentUser!.toJson()));
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('finwise_token', token);
+          await prefs.setString('finwise_user', jsonEncode(_currentUser!.toJson()));
+        } catch (prefErr) {
+          debugPrint('[!] Không thể lưu SharedPreferences: $prefErr');
+        }
 
         return {'success': true, 'message': 'Đăng nhập thành công!'};
       }
