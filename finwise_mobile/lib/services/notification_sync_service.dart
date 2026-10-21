@@ -16,6 +16,7 @@ class NotificationSyncService {
   // Thông báo tới UI khi vừa tự động bắt và lưu thành công một giao dịch
   final ValueNotifier<String?> lastCapturedMessage = ValueNotifier<String?>(null);
   final ValueNotifier<bool> isPermissionEnabled = ValueNotifier<bool>(false);
+  final ValueNotifier<int> dataRefreshTrigger = ValueNotifier<int>(0);
 
   // Danh sách package ứng dụng Ngân hàng & Ví điện tử phổ biến tại Việt Nam
   static const Set<String> _knownBankingPackages = {
@@ -167,6 +168,7 @@ class NotificationSyncService {
           
           debugPrint('[NotificationSyncService] ✅ ĐÃ LƯU THÀNH CÔNG: $msg');
           lastCapturedMessage.value = msg;
+          dataRefreshTrigger.value++;
           onNewTransaction?.call();
         }
       } catch (e, stack) {

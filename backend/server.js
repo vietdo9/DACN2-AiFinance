@@ -30,7 +30,7 @@ app.use('/api/admin', adminRoutes);
 app.get('/', (req, res) => {
     res.json({
         name: 'FinWise Backend API Gateway',
-        version: '1.0.0',
+        version: '1.0.2',
         status: 'running',
         endpoints: {
             auth: '/api/auth (register, login, me)',
@@ -41,6 +41,14 @@ app.get('/', (req, res) => {
             admin: '/api/admin (overview, users, status, role)'
         },
         ai_service_url: process.env.AI_SERVICE_URL || 'http://localhost:8000'
+    });
+});
+
+app.get('/api/debug-deploy', (req, res) => {
+    res.json({
+        deployed: true,
+        version: '1.0.2',
+        timestamp: new Date().toISOString()
     });
 });
 

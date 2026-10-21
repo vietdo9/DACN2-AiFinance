@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/transaction_model.dart';
 import '../models/category_model.dart';
 import '../services/api_service.dart';
+import '../services/notification_sync_service.dart';
 import 'add_transaction_screen.dart';
 
 class TransactionsScreen extends StatefulWidget {
@@ -12,7 +13,8 @@ class TransactionsScreen extends StatefulWidget {
   State<TransactionsScreen> createState() => _TransactionsScreenState();
 }
 
-class _TransactionsScreenState extends State<TransactionsScreen> with SingleTickerProviderStateMixin {
+class _TransactionsScreenState extends State<TransactionsScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final currencyFormat = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
   late TabController _tabController;
   List<TransactionModel> _allTransactions = [];
@@ -22,12 +24,35 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 3, vsync: this);
+    NotificationSyncService().dataRefreshTrigger.addListener(_onAutoRefresh);
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    NotificationSyncService().dataRefreshTrigger.removeListener(_onAutoRefresh);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadData(showLoading: false);
+    }
+  }
+
+  void _onAutoRefresh() {
+    if (mounted) {
+      _loadData(showLoading: false);
+    }
+  }
+
+  Future<void> _loadData({bool showLoading = true}) async {
+    if (showLoading) setState(() => _isLoading = true);
     final results = await Future.wait([
       ApiService().getTransactions(),
       ApiService().getCategories(),
@@ -350,14 +375,16 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
 
                                 if (confirm == true) {
                                   setModalState(() => isSaving = true);
+                                  final nav = Navigator.of(ctx);
                                   final scaffoldMessenger = ScaffoldMessenger.of(context);
                                   final success = await ApiService().deleteTransaction(tx.id);
+                                  nav.pop();
                                   if (mounted) {
-                                    Navigator.pop(ctx);
                                     if (success) {
                                       scaffoldMessenger.showSnackBar(
                                         const SnackBar(content: Text('Đã xóa giao dịch thành công!')),
                                       );
+                                      NotificationSyncService().dataRefreshTrigger.value++;
                                       _loadData();
                                     }
                                   }
@@ -386,17 +413,22 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                                   }
 
                                   setModalState(() => isSaving = true);
+                                  final nav = Navigator.of(ctx);
                                   final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+                                  const knownExpenseCodes = {
+                                    'AN_UONG', 'DI_LAI', 'MUA_SAM', 'HOA_DON', 'NHA_O',
+                                    'GIAI_TRI', 'SUC_KHOE', 'HOC_TAP', 'TIET_KIEM_DAU_TU'
+                                  };
+                                  const knownIncomeCodes = {'THU_NHAP', 'TIEN_CHUYEN_DEN', 'THU_KHAC'};
 
                                   String finalCatCode = editCategoryCode;
                                   if (editType == 'income') {
-                                    final isIncomeCat = _categories.any((c) => c.code == finalCatCode && c.type == 'income');
-                                    if (!isIncomeCat) {
+                                    if (!knownIncomeCodes.contains(finalCatCode)) {
                                       finalCatCode = 'THU_NHAP';
                                     }
                                   } else {
-                                    final isExpenseCat = _categories.any((c) => c.code == finalCatCode && c.type == 'expense');
-                                    if (!isExpenseCat) {
+                                    if (!knownExpenseCodes.contains(finalCatCode)) {
                                       finalCatCode = 'AN_UONG';
                                     }
                                   }
@@ -410,8 +442,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                                     transactionDate: DateFormat('yyyy-MM-dd').format(editDate),
                                   );
 
+                                  nav.pop();
                                   if (mounted) {
-                                    Navigator.pop(ctx);
                                     if (success) {
                                       scaffoldMessenger.showSnackBar(
                                         const SnackBar(
@@ -419,6 +451,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                                           content: Text('✨ Đã cập nhật giao dịch & lưu thói quen cá nhân!'),
                                         ),
                                       );
+                                      NotificationSyncService().dataRefreshTrigger.value++;
                                       _loadData();
                                     } else {
                                       scaffoldMessenger.showSnackBar(
@@ -451,6 +484,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
         title: const Text('Lịch Sử Thu Chi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1E293B))),
         backgroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync, color: Color(0xFF4F46E5)),
+            tooltip: 'Đồng bộ ngay',
+            onPressed: () => _loadData(showLoading: false),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: const Color(0xFF4F46E5),
@@ -481,7 +521,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
             context,
             MaterialPageRoute(builder: (context) => const AddTransactionScreen()),
           );
-          if (res == true) _loadData();
+          if (res == true) {
+            NotificationSyncService().dataRefreshTrigger.value++;
+            _loadData();
+          }
         },
       ),
     );
@@ -489,29 +532,41 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
 
   Widget _buildList(List<TransactionModel> items) {
     if (items.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.receipt_long_outlined, size: 48, color: Color(0xFF94A3B8)),
-            SizedBox(height: 12),
-            Text(
-              'Chưa có giao dịch nào',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF334155)),
-            ),
-            SizedBox(height: 6),
-            Text(
-              'Các khoản chi tiêu của bạn sẽ được lưu riêng biệt tại đây.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+      return RefreshIndicator(
+        onRefresh: () => _loadData(showLoading: false),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.receipt_long_outlined, size: 48, color: Color(0xFF94A3B8)),
+                  SizedBox(height: 12),
+                  Text(
+                    'Chưa có giao dịch nào',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF334155)),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Vuốt xuống để làm mới hoặc đồng bộ dữ liệu.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: items.length,
+    return RefreshIndicator(
+      onRefresh: () => _loadData(showLoading: false),
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: items.length,
       itemBuilder: (context, index) {
         final tx = items[index];
         final isIncome = tx.type == 'income';
@@ -589,6 +644,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
           ),
         );
       },
-    );
-  }
+    ),
+  );
+}
 }

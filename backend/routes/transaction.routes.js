@@ -344,6 +344,7 @@ router.put('/:id', verifyToken, async (req, res) => {
         let updatedTx = null;
 
         // Cập nhật Supabase (Lưu ý: Bảng transactions KHÔNG có cột updated_at)
+        let lastErr = null;
         if (isSupabaseConfigured()) {
             try {
                 let { data: tx, error } = await supabase
@@ -381,6 +382,8 @@ router.put('/:id', verifyToken, async (req, res) => {
                         tx = retry.data;
                         error = null;
                         newCatCode = fallbackCode;
+                    } else if (retry.error) {
+                        error = retry.error;
                     }
                 }
 
@@ -398,9 +401,11 @@ router.put('/:id', verifyToken, async (req, res) => {
                         }).catch(() => {});
                     }
                 } else if (error) {
+                    lastErr = error;
                     console.error('[!] Supabase update transaction error:', error.message);
                 }
             } catch (err) {
+                lastErr = err;
                 console.error('[!] Supabase update exception:', err.message);
             }
         }
@@ -421,6 +426,13 @@ router.put('/:id', verifyToken, async (req, res) => {
             if (oldTx.wallet_id && delta !== 0) {
                 localStore.updateWalletBalance(oldTx.wallet_id, delta);
             }
+        }
+
+        if (!updatedTx) {
+            return res.status(500).json({
+                success: false,
+                message: 'Không thể cập nhật giao dịch' + (lastErr ? `: ${lastErr.message}` : '')
+            });
         }
 
         // HỌC TỪ PHẢN HỒI: Lưu quy tắc ưu tiên cho người dùng nếu có ghi chú

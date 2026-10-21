@@ -14,7 +14,7 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   final currencyFormat = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ');
   bool _isLoading = true;
   Map<String, dynamic> _summary = {};
@@ -23,30 +23,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    WidgetsBinding.instance.addObserver(this);
+    _loadData(showLoading: true);
     NotificationSyncService().checkPermission();
-    NotificationSyncService().lastCapturedMessage.addListener(_onCapturedTransaction);
+    NotificationSyncService().dataRefreshTrigger.addListener(_onAutoRefresh);
+    NotificationSyncService().lastCapturedMessage.addListener(_onAutoRefresh);
   }
 
   @override
   void dispose() {
-    NotificationSyncService().lastCapturedMessage.removeListener(_onCapturedTransaction);
+    WidgetsBinding.instance.removeObserver(this);
+    NotificationSyncService().dataRefreshTrigger.removeListener(_onAutoRefresh);
+    NotificationSyncService().lastCapturedMessage.removeListener(_onAutoRefresh);
     super.dispose();
   }
 
-  void _onCapturedTransaction() {
-    if (mounted) {
-      _loadData();
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadData(showLoading: false);
     }
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    final summary = await ApiService().getSummary();
-    final txs = await ApiService().getTransactions();
+  void _onAutoRefresh() {
+    if (mounted) {
+      _loadData(showLoading: false);
+    }
+  }
+
+  Future<void> _loadData({bool showLoading = false}) async {
+    if (showLoading && _summary.isEmpty) {
+      setState(() => _isLoading = true);
+    }
+    final results = await Future.wait([
+      ApiService().getSummary(),
+      ApiService().getTransactions(),
+    ]);
     if (mounted) {
       setState(() {
-        _summary = summary;
+        final summaryData = results[0] as Map<String, dynamic>;
+        if (summaryData.isNotEmpty) {
+          _summary = summaryData;
+        }
+        final txs = results[1] as List<TransactionModel>;
         _recentTransactions = txs.take(5).toList();
         _isLoading = false;
       });
@@ -93,14 +112,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
-            onPressed: _loadData,
+            icon: const Icon(Icons.sync, color: Color(0xFF4F46E5)),
+            tooltip: 'Đồng bộ ngay',
+            onPressed: () => _loadData(showLoading: false),
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadData,
+        onRefresh: () => _loadData(showLoading: false),
         child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,7 +176,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             MaterialPageRoute(builder: (context) => const AddTransactionScreen()),
           );
           if (result == true) {
-            _loadData();
+            NotificationSyncService().dataRefreshTrigger.value++;
+            _loadData(showLoading: false);
           }
         },
       ),

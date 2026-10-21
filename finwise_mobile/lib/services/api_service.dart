@@ -203,13 +203,15 @@ class ApiService {
     try {
       final response = await http
           .get(Uri.parse('$baseUrl/api/analytics/summary'), headers: _headers)
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final res = jsonDecode(response.body);
         return res['data'] ?? {};
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiService] getSummary error: $e');
+    }
 
     // Giá trị ban đầu sạch sẽ cho tài khoản mới (không dùng số liệu giả)
     return {
@@ -225,14 +227,16 @@ class ApiService {
     try {
       final response = await http
           .get(Uri.parse('$baseUrl/api/transactions/categories'))
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final res = jsonDecode(response.body);
         final list = res['data'] as List? ?? [];
         return list.map((e) => CategoryModel.fromJson(e)).toList();
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiService] getCategories error: $e');
+    }
 
     return [
       CategoryModel(code: 'AN_UONG', name: 'Ăn uống & Cà phê', type: 'expense', icon: 'restaurant', color: const Color(0xFFF59E0B)),
@@ -255,14 +259,16 @@ class ApiService {
     try {
       final response = await http
           .get(Uri.parse('$baseUrl/api/transactions'), headers: _headers)
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final res = jsonDecode(response.body);
         final list = res['data'] as List? ?? [];
         return list.map((e) => TransactionModel.fromJson(e)).toList();
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiService] getTransactions error: $e');
+    }
 
     return [];
   }
@@ -274,13 +280,15 @@ class ApiService {
         Uri.parse('$baseUrl/api/ai/classify'),
         headers: _headers,
         body: jsonEncode({'text': note}),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final res = jsonDecode(response.body);
         return res['data'];
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[ApiService] classifyWithAi error: $e');
+    }
     return null;
   }
 
@@ -301,10 +309,11 @@ class ApiService {
           'type': type,
           ...? (categoryCode != null ? {'category_code': categoryCode} : null),
         }),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 15));
 
       return response.statusCode == 200 || response.statusCode == 201;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[ApiService] createTransaction error: $e');
       return false;
     }
   }
@@ -329,10 +338,14 @@ class ApiService {
           ...? (categoryCode != null ? {'category_code': categoryCode} : null),
           ...? (transactionDate != null ? {'transaction_date': transactionDate} : null),
         }),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 15));
 
+      if (response.statusCode != 200) {
+        debugPrint('[ApiService] updateTransaction error status ${response.statusCode}: ${response.body}');
+      }
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[ApiService] updateTransaction exception: $e');
       return false;
     }
   }
@@ -343,10 +356,11 @@ class ApiService {
       final response = await http.delete(
         Uri.parse('$baseUrl/api/transactions/$id'),
         headers: _headers,
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 15));
 
       return response.statusCode == 200;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[ApiService] deleteTransaction error: $e');
       return false;
     }
   }
