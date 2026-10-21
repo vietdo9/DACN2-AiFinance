@@ -517,11 +517,20 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
 
+    String finalCat = _selectedCategoryCode ?? (_type == 'income' ? 'THU_NHAP' : 'AN_UONG');
+    if (_type == 'income') {
+      final isIncomeCat = _categories.any((c) => c.code == finalCat && c.type == 'income');
+      if (!isIncomeCat) finalCat = 'THU_NHAP';
+    } else {
+      final isExpenseCat = _categories.any((c) => c.code == finalCat && c.type == 'expense');
+      if (!isExpenseCat) finalCat = 'AN_UONG';
+    }
+
     final success = await ApiService().createTransaction(
       amount: amount,
       note: _noteController.text.trim(),
       type: _type,
-      categoryCode: _selectedCategoryCode,
+      categoryCode: finalCat,
     );
 
     if (mounted) {

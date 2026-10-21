@@ -130,8 +130,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                             onTap: () {
                               setModalState(() {
                                 editType = 'expense';
-                                final firstExpense = _categories.firstWhere((c) => c.type == 'expense', orElse: () => _categories.first);
-                                editCategoryCode = firstExpense.code;
+                                final expenseCats = _categories.where((c) => c.type == 'expense').toList();
+                                editCategoryCode = expenseCats.isNotEmpty ? expenseCats.first.code : 'AN_UONG';
                               });
                             },
                             child: Container(
@@ -156,8 +156,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                             onTap: () {
                               setModalState(() {
                                 editType = 'income';
-                                final firstIncome = _categories.firstWhere((c) => c.type == 'income', orElse: () => _categories.first);
-                                editCategoryCode = firstIncome.code;
+                                final incomeCats = _categories.where((c) => c.type == 'income').toList();
+                                editCategoryCode = incomeCats.isNotEmpty ? incomeCats.first.code : 'THU_NHAP';
                               });
                             },
                             child: Container(
@@ -254,7 +254,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                   const SizedBox(height: 8),
                   Builder(
                     builder: (context) {
-                      final displayedCategories = _categories.where((c) => c.type == editType).toList();
+                      List<CategoryModel> displayedCategories = _categories.where((c) => c.type == editType).toList();
+                      if (displayedCategories.isEmpty) {
+                        if (editType == 'income') {
+                          displayedCategories = [
+                            CategoryModel(code: 'THU_NHAP', name: 'Thu Nhập & Lương', type: 'income', icon: 'payments', color: const Color(0xFF10B981)),
+                          ];
+                        } else {
+                          displayedCategories = [
+                            CategoryModel(code: 'AN_UONG', name: 'Ăn Uống', type: 'expense', icon: 'restaurant', color: const Color(0xFFF59E0B)),
+                          ];
+                        }
+                      }
                       return GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
@@ -376,12 +387,26 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
 
                                   setModalState(() => isSaving = true);
                                   final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+                                  String finalCatCode = editCategoryCode;
+                                  if (editType == 'income') {
+                                    final isIncomeCat = _categories.any((c) => c.code == finalCatCode && c.type == 'income');
+                                    if (!isIncomeCat) {
+                                      finalCatCode = 'THU_NHAP';
+                                    }
+                                  } else {
+                                    final isExpenseCat = _categories.any((c) => c.code == finalCatCode && c.type == 'expense');
+                                    if (!isExpenseCat) {
+                                      finalCatCode = 'AN_UONG';
+                                    }
+                                  }
+
                                   final success = await ApiService().updateTransaction(
                                     id: tx.id,
                                     amount: amt,
                                     note: noteController.text.trim(),
                                     type: editType,
-                                    categoryCode: editCategoryCode,
+                                    categoryCode: finalCatCode,
                                     transactionDate: DateFormat('yyyy-MM-dd').format(editDate),
                                   );
 

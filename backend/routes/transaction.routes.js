@@ -148,8 +148,16 @@ router.post('/', verifyToken, async (req, res) => {
             }
         }
 
-        if (!category_code) {
-            category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
+        // Chuẩn hóa và làm sạch: đảm bảo type khớp với category_code
+        if (type === 'income') {
+            const incomeCodes = ['THU_NHAP', 'TIEN_CHUYEN_DEN', 'THU_KHAC'];
+            if (!category_code || !incomeCodes.includes(category_code)) {
+                category_code = 'THU_NHAP';
+            }
+        } else {
+            if (!category_code || category_code === 'THU_NHAP') {
+                category_code = 'AN_UONG';
+            }
         }
 
         // Lưu vào bộ nhớ cá nhân hóa để học thói quen người dùng
@@ -170,7 +178,7 @@ router.post('/', verifyToken, async (req, res) => {
         // 1. Thử lưu vào Supabase
         if (isSupabaseConfigured()) {
             try {
-                const { data: transaction, error: txError } = await supabase
+                let { data: transaction, error: txError } = await supabase
                     .from('transactions')
                     .insert([{
                         user_id: req.user.id,
@@ -185,6 +193,32 @@ router.post('/', verifyToken, async (req, res) => {
                     }])
                     .select()
                     .single();
+
+                // Nếu lỗi Foreign Key do mã danh mục chưa có trong DB Supabase, fallback về THU_NHAP / AN_UONG
+                if (txError && (txError.code === '23503' || (txError.message && txError.message.includes('foreign key')))) {
+                    const fallbackCode = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
+                    const retry = await supabase
+                        .from('transactions')
+                        .insert([{
+                            user_id: req.user.id,
+                            wallet_id: wallet_id || null,
+                            category_code: fallbackCode,
+                            amount: numericAmount,
+                            type,
+                            note: note || '',
+                            transaction_date: txDate,
+                            ai_predicted,
+                            ai_confidence
+                        }])
+                        .select()
+                        .single();
+
+                    if (!retry.error && retry.data) {
+                        transaction = retry.data;
+                        txError = null;
+                        category_code = fallbackCode;
+                    }
+                }
 
                 if (!txError && transaction) {
                     savedTx = {
@@ -201,8 +235,12 @@ router.post('/', verifyToken, async (req, res) => {
                             p_amount: delta
                         }).catch(() => {});
                     }
+                } else if (txError) {
+                    console.error('[!] Lỗi insert Supabase transaction:', txError.message);
                 }
-            } catch (_) {}
+            } catch (err) {
+                console.error('[!] Exception khi insert Supabase transaction:', err.message);
+            }
         }
 
         // 2. Lưu vào Local Store nếu Supabase chưa có
@@ -276,9 +314,21 @@ router.put('/:id', verifyToken, async (req, res) => {
 
         const newAmount = amount !== undefined ? parseFloat(amount) : parseFloat(oldTx.amount);
         const newType = type || oldTx.type;
-        const newCatCode = category_code || oldTx.category_code;
+        let newCatCode = category_code || oldTx.category_code;
         const newNote = note !== undefined ? note : oldTx.note;
         const newDate = transaction_date || oldTx.transaction_date;
+
+        // Chuẩn hóa và làm sạch: đảm bảo type khớp với category_code
+        if (newType === 'income') {
+            const incomeCodes = ['THU_NHAP', 'TIEN_CHUYEN_DEN', 'THU_KHAC'];
+            if (!newCatCode || !incomeCodes.includes(newCatCode)) {
+                newCatCode = 'THU_NHAP';
+            }
+        } else {
+            if (!newCatCode || newCatCode === 'THU_NHAP') {
+                newCatCode = 'AN_UONG';
+            }
+        }
 
         const catInfo = DEFAULT_CATEGORIES.find(c => c.code === newCatCode) || {
             name: newCatCode,
@@ -293,23 +343,46 @@ router.put('/:id', verifyToken, async (req, res) => {
 
         let updatedTx = null;
 
-        // Cập nhật Supabase
+        // Cập nhật Supabase (Lưu ý: Bảng transactions KHÔNG có cột updated_at)
         if (isSupabaseConfigured()) {
             try {
-                const { data: tx, error } = await supabase
+                let { data: tx, error } = await supabase
                     .from('transactions')
                     .update({
                         amount: newAmount,
                         type: newType,
                         category_code: newCatCode,
                         note: newNote,
-                        transaction_date: newDate,
-                        updated_at: new Date().toISOString()
+                        transaction_date: newDate
                     })
                     .eq('id', id)
                     .eq('user_id', req.user.id)
                     .select()
                     .single();
+
+                // Nếu lỗi Foreign Key do mã danh mục chưa có trong DB Supabase, fallback về THU_NHAP / AN_UONG
+                if (error && (error.code === '23503' || (error.message && error.message.includes('foreign key')))) {
+                    const fallbackCode = newType === 'income' ? 'THU_NHAP' : 'AN_UONG';
+                    const retry = await supabase
+                        .from('transactions')
+                        .update({
+                            amount: newAmount,
+                            type: newType,
+                            category_code: fallbackCode,
+                            note: newNote,
+                            transaction_date: newDate
+                        })
+                        .eq('id', id)
+                        .eq('user_id', req.user.id)
+                        .select()
+                        .single();
+
+                    if (!retry.error && retry.data) {
+                        tx = retry.data;
+                        error = null;
+                        newCatCode = fallbackCode;
+                    }
+                }
 
                 if (!error && tx) {
                     updatedTx = {
@@ -324,8 +397,12 @@ router.put('/:id', verifyToken, async (req, res) => {
                             p_amount: delta
                         }).catch(() => {});
                     }
+                } else if (error) {
+                    console.error('[!] Supabase update transaction error:', error.message);
                 }
-            } catch (_) {}
+            } catch (err) {
+                console.error('[!] Supabase update exception:', err.message);
+            }
         }
 
         // Cập nhật LocalStore
