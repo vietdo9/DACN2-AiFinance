@@ -20,11 +20,17 @@ class NotificationSyncService {
 
   // Danh sách package ứng dụng Ngân hàng & Ví điện tử phổ biến tại Việt Nam
   static const Set<String> _knownBankingPackages = {
+    // VIB (Ngân hàng Quốc tế)
+    'com.vib.myvib2',
+    'com.vn.vib.mobileapp',
+    'com.vib.corp',
+    // Ví điện tử & TMĐT
     'com.shopee.vn',
     'com.airpay.consumer',
     'com.mservice.momopay',
     'vn.com.vng.zalopay',
     'com.bplus.vtpay',
+    // Ngân hàng TMCP lớn
     'com.VCB',
     'com.mbmobile',
     'com.techcombank.mobile',
@@ -38,6 +44,14 @@ class NotificationSyncService {
     'mobile.acb.com.vn',
     'com.sacombank.mplus',
     'com.vnpay.agribank',
+    'com.hdbank.mplus',
+    'com.ocb.omni',
+    'com.msb.smartbanking',
+    'com.vnpay.msb',
+    'com.shb.mobilebanking',
+    'com.seabank.mb',
+    'com.lpbank.mobilebanking',
+    // Ngân hàng số thế hệ mới
     'vn.timo',
     'vn.be.cake',
     'vnpay.smartacccount',
@@ -107,6 +121,8 @@ class NotificationSyncService {
             lower.contains('vietcombank') ||
             lower.contains('mbbank') ||
             lower.contains('techcombank') ||
+            lower.contains('vib') ||
+            lower.contains('myvib') ||
             lower.contains('vnpay') ||
             lower.contains('vn pay');
 
@@ -201,6 +217,8 @@ class NotificationSyncService {
       source = 'MB Bank';
     } else if (packageName.contains('techcombank')) {
       source = 'Techcombank';
+    } else if (packageName.contains('vib') || lower.contains('vib') || lower.contains('myvib')) {
+      source = 'VIB (MyVIB)';
     } else if (packageName.contains('vnpay') || lower.contains('vnpay') || lower.contains('vn pay')) {
       source = 'Ví VNPAY';
     }
@@ -213,9 +231,14 @@ class NotificationSyncService {
     String textWithoutBalance = text;
     final balanceIndex = lower.indexOf('số dư:');
     final balanceIndex2 = lower.indexOf('so du:');
-    final balanceIndex3 = lower.indexOf('số dư cuối:');
-    final balanceIndex4 = lower.indexOf('balance:');
-    final cutIndex = [balanceIndex, balanceIndex2, balanceIndex3, balanceIndex4].where((i) => i >= 0).fold<int>(-1, (min, i) => min == -1 || i < min ? i : min);
+    final balanceIndex3 = lower.indexOf('số dư cuối');
+    final balanceIndex4 = lower.indexOf('số dư khả dụng');
+    final balanceIndex5 = lower.indexOf('so du kha dung');
+    final balanceIndex6 = lower.indexOf('balance:');
+    final balanceIndex7 = lower.indexOf('khả dụng:');
+    final cutIndex = [balanceIndex, balanceIndex2, balanceIndex3, balanceIndex4, balanceIndex5, balanceIndex6, balanceIndex7]
+        .where((i) => i >= 0)
+        .fold<int>(-1, (min, i) => min == -1 || i < min ? i : min);
     if (cutIndex > 0) {
       textWithoutBalance = text.substring(0, cutIndex);
     }
