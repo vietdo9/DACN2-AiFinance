@@ -80,10 +80,15 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       );
     }
 
-    final totalBalance = (_summary['total_balance'] as num?)?.toDouble() ?? 0.0;
+    double totalBalance = (_summary['total_balance'] as num?)?.toDouble() ?? 0.0;
     final income = (_summary['this_month_income'] as num?)?.toDouble() ?? 0.0;
     final expense = (_summary['this_month_expense'] as num?)?.toDouble() ?? 0.0;
     final categoryBreakdown = (_summary['expense_by_category'] as List?) ?? [];
+
+    // Tự động tính số dư ròng (Net Balance) nếu API chưa kịp cập nhật số dư
+    if (totalBalance == 0.0 && (income > 0 || expense > 0)) {
+      totalBalance = income - expense;
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),

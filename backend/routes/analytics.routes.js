@@ -26,55 +26,97 @@ router.get('/summary', verifyToken, async (req, res) => {
         const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
 
         let wallets = [];
-        let txs = [];
+        let allTxs = [];
 
         // 1. Thử lấy từ Supabase theo req.user.id
         if (isSupabaseConfigured()) {
             try {
                 const { data: sbWallets } = await supabase
                     .from('wallets')
-                    .select('balance')
+                    .select('id, name, balance, is_default')
                     .eq('user_id', req.user.id);
                 if (sbWallets) wallets = sbWallets;
 
+                // Lấy TẤT CẢ giao dịch của user để tính tổng số dư tích luỹ thực tế
                 const { data: sbTxs } = await supabase
                     .from('transactions')
                     .select('amount, type, category_code, transaction_date')
-                    .eq('user_id', req.user.id)
-                    .gte('transaction_date', firstDayOfMonth);
-                if (sbTxs) txs = sbTxs;
-            } catch (_) {}
+                    .eq('user_id', req.user.id);
+                if (sbTxs) allTxs = sbTxs;
+            } catch (sbErr) {
+                console.error('[!] Supabase analytics error:', sbErr.message);
+            }
         }
 
         // 2. Nếu Supabase không có, lấy từ Local Store của đúng user_id đó
         if (wallets.length === 0) {
             wallets = localStore.getWallets(req.user.id);
         }
-        if (txs.length === 0) {
-            const allUserTxs = localStore.getTransactions(req.user.id);
-            txs = allUserTxs.filter(t => t.transaction_date >= firstDayOfMonth);
+        if (allTxs.length === 0) {
+            allTxs = localStore.getTransactions(req.user.id);
         }
 
-        // Tính tổng số dư các ví của user
-        const totalBalance = (wallets || []).reduce((acc, w) => acc + parseFloat(w.balance || 0), 0);
+        // Lọc các giao dịch trong tháng hiện tại
+        const thisMonthTxs = allTxs.filter(t => t.transaction_date >= firstDayOfMonth);
 
-        // Tính thu - chi trong tháng
+        // Tính tổng tích lũy dòng tiền (All-time Income - All-time Expense)
+        let allTimeIncome = 0;
+        let allTimeExpense = 0;
+        allTxs.forEach(t => {
+            const amt = parseFloat(t.amount || 0);
+            if (t.type === 'income') {
+                allTimeIncome += amt;
+            } else {
+                allTimeExpense += amt;
+            }
+        });
+
+        // TỔNG SỐ DƯ HIỆN TẠI (Net Balance):
+        // Bằng: Tổng tất cả khoản Thu - Tổng tất cả khoản Chi
+        const totalBalance = allTimeIncome - allTimeExpense;
+
+        // Đồng bộ số dư thực tế này vào ví mặc định trong database để dữ liệu luôn nhất quán
+        if (wallets.length > 0) {
+            const defaultWallet = wallets.find(w => w.is_default) || wallets[0];
+            if (defaultWallet) {
+                defaultWallet.balance = totalBalance;
+                if (isSupabaseConfigured() && defaultWallet.id) {
+                    supabase.from('wallets')
+                        .update({ balance: totalBalance })
+                        .eq('id', defaultWallet.id)
+                        .then(() => {})
+                        .catch(() => {});
+                }
+            }
+        }
+
+        // Tính thu - chi trong tháng hiện tại
         let income = 0;
         let expense = 0;
         const catMap = {};
 
-        (txs || []).forEach(t => {
+        thisMonthTxs.forEach(t => {
             const amt = parseFloat(t.amount || 0);
             if (t.type === 'income') {
                 income += amt;
             } else {
                 expense += amt;
-                const cCode = t.category_code || 'AN_UONG';
-                catMap[cCode] = (catMap[cCode] || 0) + amt;
             }
         });
 
-        // Tính cơ cấu chi tiêu cho biểu đồ
+        // Tính cơ cấu chi tiêu cho biểu đồ (lấy theo các giao dịch trong tháng, hoặc tất cả nếu tháng này chưa có chi)
+        const expenseSourceTxs = (thisMonthTxs.filter(t => t.type === 'expense').length > 0)
+            ? thisMonthTxs.filter(t => t.type === 'expense')
+            : allTxs.filter(t => t.type === 'expense');
+
+        const totalExpenseForChart = expenseSourceTxs.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+
+        expenseSourceTxs.forEach(t => {
+            const amt = parseFloat(t.amount || 0);
+            const cCode = t.category_code || 'AN_UONG';
+            catMap[cCode] = (catMap[cCode] || 0) + amt;
+        });
+
         const categoryBreakdown = Object.keys(catMap).map(k => {
             const catMeta = CATEGORY_NAMES[k] || { name: k, color: '#6B7280' };
             return {
@@ -82,7 +124,7 @@ router.get('/summary', verifyToken, async (req, res) => {
                 category_name: catMeta.name,
                 color: catMeta.color,
                 total: catMap[k],
-                percentage: expense > 0 ? Math.round((catMap[k] / expense) * 1000) / 10 : 0
+                percentage: totalExpenseForChart > 0 ? Math.round((catMap[k] / totalExpenseForChart) * 1000) / 10 : 0
             };
         });
 
