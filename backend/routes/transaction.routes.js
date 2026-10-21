@@ -23,7 +23,9 @@ const DEFAULT_CATEGORIES = [
     { code: 'SUC_KHOE', name: 'Sức khỏe & Y tế', type: 'expense', icon: 'medical_services', color: '#EF4444' },
     { code: 'HOC_TAP', name: 'Học tập & Phát triển', type: 'expense', icon: 'school', color: '#14B8A6' },
     { code: 'TIET_KIEM_DAU_TU', name: 'Tiết kiệm & Đầu tư', type: 'expense', icon: 'savings', color: '#06B6D4' },
-    { code: 'THU_NHAP', name: 'Thu nhập & Lương', type: 'income', icon: 'payments', color: '#22C55E' }
+    { code: 'THU_NHAP', name: 'Thu nhập & Lương', type: 'income', icon: 'payments', color: '#22C55E' },
+    { code: 'TIEN_CHUYEN_DEN', name: 'Nhận Chuyển Khoản', type: 'income', icon: 'account_balance_wallet', color: '#10B981' },
+    { code: 'THU_KHAC', name: 'Thu Khác & Thưởng', type: 'income', icon: 'volunteer_activism', color: '#14B8A6' }
 ];
 
 // Quét ảnh hóa đơn / Bill bằng AI (EasyOCR + PhoBERT)

@@ -14,7 +14,9 @@ const CATEGORY_NAMES = {
     'SUC_KHOE': { name: 'Sức khỏe & Y tế', color: '#EF4444' },
     'HOC_TAP': { name: 'Học tập & Phát triển', color: '#14B8A6' },
     'TIET_KIEM_DAU_TU': { name: 'Tiết kiệm & Đầu tư', color: '#06B6D4' },
-    'THU_NHAP': { name: 'Thu nhập & Lương', color: '#22C55E' }
+    'THU_NHAP': { name: 'Thu nhập & Lương', color: '#22C55E' },
+    'TIEN_CHUYEN_DEN': { name: 'Nhận Chuyển Khoản', color: '#10B981' },
+    'THU_KHAC': { name: 'Thu Khác & Thưởng', color: '#14B8A6' }
 };
 
 // Lấy số liệu thống kê tổng quan (Dashboard Summary) độc lập cho từng user_id

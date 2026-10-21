@@ -250,20 +250,85 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   Future<void> _parseAndApplyBankSms(String raw) async {
     final textLower = raw.toLowerCase();
 
-    // 1. Phân biệt Loại: Chi Tiêu hay Thu Nhập
-    String detectedType = 'expense';
-    if (raw.contains('+') || textLower.contains('cong') || textLower.contains('nhan duoc') || textLower.contains('credit')) {
-      detectedType = 'income';
+    // 1. Tách số tiền (Hỗ trợ viết tắt dạng k/K như 250k, 50k, 100k, và số đầy đủ)
+    double detectedAmount = 0;
+    String? detectedTypeFromSign;
+
+    // Regex 0: Bắt số tiền viết tắt dạng k/K (ví dụ: +250k, 250k, 50k, 100k, -50k)
+    final kMatch = RegExp(r'([+-])?\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(raw);
+    if (kMatch != null) {
+      final signStr = kMatch.group(1);
+      final numStr = kMatch.group(2)!.replaceAll(',', '.');
+      final parsedK = double.tryParse(numStr);
+      if (parsedK != null && parsedK > 0) {
+        detectedAmount = parsedK * 1000;
+        if (signStr == '+') detectedTypeFromSign = 'income';
+        if (signStr == '-') detectedTypeFromSign = 'expense';
+      }
     }
 
-    // 2. Trích xuất số tiền: tìm chuỗi số có dấu chấm/phẩy hoặc số thuần
-    double detectedAmount = 0;
-    final amtMatch = RegExp(r'(?:[-+]|\b)(?:[0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false).firstMatch(raw);
-    if (amtMatch != null) {
-      final cleaned = amtMatch.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
-      final parsed = double.tryParse(cleaned);
-      if (parsed != null && parsed >= 1000) {
-        detectedAmount = parsed;
+    // Regex 1: Số tiền có dấu + hoặc - rõ ràng
+    if (detectedAmount == 0) {
+      final signedMatch = RegExp(r'([+-])\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
+          .firstMatch(raw);
+      if (signedMatch != null) {
+        final signStr = signedMatch.group(1);
+        final rawNum = signedMatch.group(2)!.replaceAll(RegExp(r'[^0-9]'), '');
+        detectedAmount = double.tryParse(rawNum) ?? 0;
+        if (signStr == '+') detectedTypeFromSign = 'income';
+        if (signStr == '-') detectedTypeFromSign = 'expense';
+      }
+    }
+
+    // Regex 2: Số tiền sau các từ khóa
+    if (detectedAmount == 0) {
+      final amtMatch = RegExp(r'(?:[-+]|\b)(?:[0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false).firstMatch(raw);
+      if (amtMatch != null) {
+        final cleaned = amtMatch.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
+        final parsed = double.tryParse(cleaned);
+        if (parsed != null && parsed >= 1000) {
+          detectedAmount = parsed;
+        }
+      }
+    }
+
+    // 2. Phân loại 2 Mục Lớn: Thu Nhập vs Chi Tiêu (Ưu tiên tuyệt đối)
+    String detectedType = 'expense';
+    if (detectedTypeFromSign != null) {
+      detectedType = detectedTypeFromSign;
+    } else {
+      final hasIncomeKeywords = textLower.contains('+') ||
+          textLower.contains('cong') || textLower.contains('cộng') ||
+          textLower.contains('duoc cong') || textLower.contains('được cộng') ||
+          textLower.contains('nhan') || textLower.contains('nhận') ||
+          textLower.contains('da nhan') || textLower.contains('đã nhận') ||
+          textLower.contains('nap') || textLower.contains('nạp') ||
+          textLower.contains('tien vao') || textLower.contains('tiền vào') ||
+          textLower.contains('tien ve') || textLower.contains('tiền về') ||
+          textLower.contains('chuyen den') || textLower.contains('chuyển đến') ||
+          textLower.contains('hoan') || textLower.contains('hoàn') || textLower.contains('refund') ||
+          textLower.contains('tang') || textLower.contains('tăng') ||
+          textLower.contains('credit') || textLower.contains('cr:');
+
+      final hasExpenseKeywords = textLower.contains('-') ||
+          textLower.contains('tru') || textLower.contains('trừ') ||
+          textLower.contains('bi tru') || textLower.contains('bị trừ') ||
+          textLower.contains('thanh toan') || textLower.contains('thanh toán') ||
+          textLower.contains('rut tien') || textLower.contains('rút tiền') ||
+          textLower.contains('chuyen di') || textLower.contains('chuyển đi') ||
+          textLower.contains('giam') || textLower.contains('giảm') ||
+          textLower.contains('debit') || textLower.contains('dr:');
+
+      if (hasIncomeKeywords && !hasExpenseKeywords) {
+        detectedType = 'income';
+      } else if (hasIncomeKeywords && hasExpenseKeywords) {
+        if (textLower.contains('cộng') || textLower.contains('cong') || textLower.contains('nhận') || textLower.contains('nhan') || textLower.contains('nạp') || textLower.contains('nap')) {
+          detectedType = 'income';
+        } else {
+          detectedType = 'expense';
+        }
+      } else {
+        detectedType = 'expense';
       }
     }
 
@@ -279,7 +344,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       } catch (_) {}
     }
 
-    // 4. Trích xuất giờ và áp dụng Quy tắc Ngữ cảnh thời gian (Time Heuristics)
+    // 4. Trích xuất giờ và áp dụng Time Heuristics
     int detectedHour = detectedDate.hour;
     final timeMatch = RegExp(r'\b([0-1]?[0-9]|2[0-3])[:h]([0-5][0-9])\b').firstMatch(raw);
     if (timeMatch != null) {
@@ -296,10 +361,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       if (detectedNote.length > 40) detectedNote = detectedNote.substring(0, 40);
     }
 
-    // 6. Gợi ý Danh mục thông minh (Kết hợp Time Heuristics + PhoBERT)
+    // 6. Gán danh mục theo 2 Mục Lớn:
+    // Nếu là Thu Nhập -> Bắt buộc gán THU_NHAP, tuyệt đối không cho PhoBERT đổi sang Ăn uống/Mua sắm!
     String suggestedCategory = detectedType == 'income' ? 'THU_NHAP' : 'AN_UONG';
     
-    // Áp dụng quy tắc giờ ăn nếu là khoản chi
+    // Nếu là Khoản Chi, áp dụng quy tắc giờ ăn
     bool isMealTime = (detectedHour >= 11 && detectedHour <= 13) || (detectedHour >= 18 && detectedHour <= 20) || (detectedHour >= 7 && detectedHour <= 9);
     if (detectedType == 'expense' && isMealTime && detectedAmount <= 200000) {
       suggestedCategory = 'AN_UONG';
@@ -315,13 +381,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       if (_categories.any((c) => c.code == suggestedCategory)) {
         _selectedCategoryCode = suggestedCategory;
       }
-      _aiFeedbackMessage = '✨ Đã bóc tách tin nhắn: ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ (Gợi ý: ${detectedHour}h - Giờ ăn uống)';
+      _aiFeedbackMessage = detectedType == 'income'
+          ? '✨ Nhận diện: Thu Nhập ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ'
+          : '✨ Nhận diện: Khoản Chi ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ';
     });
 
-    // Nếu có ghi chú, gọi tiếp PhoBERT hoặc bộ nhớ cá nhân hóa để kiểm tra chuẩn hơn
-    if (detectedNote.isNotEmpty) {
+    // Chỉ gọi PhoBERT AI phân loại chi tiết NẾU LÀ KHOẢN CHI
+    if (detectedType == 'expense' && detectedNote.isNotEmpty) {
       final aiRes = await ApiService().classifyWithAi(detectedNote);
-      if (mounted && aiRes != null && aiRes['category_code'] != null) {
+      if (mounted && aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
         final catCode = aiRes['category_code'];
         if (_categories.any((c) => c.code == catCode)) {
           setState(() {
@@ -624,7 +692,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 children: [
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _type = 'expense'),
+                      onTap: () {
+                        setState(() {
+                          _type = 'expense';
+                          final firstExpense = _categories.firstWhere((c) => c.type == 'expense', orElse: () => _categories.first);
+                          _selectedCategoryCode = firstExpense.code;
+                        });
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
@@ -644,7 +718,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   ),
                   Expanded(
                     child: GestureDetector(
-                      onTap: () => setState(() => _type = 'income'),
+                      onTap: () {
+                        setState(() {
+                          _type = 'income';
+                          final firstIncome = _categories.firstWhere((c) => c.type == 'income', orElse: () => _categories.first);
+                          _selectedCategoryCode = firstIncome.code;
+                        });
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
@@ -790,57 +870,65 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
             const SizedBox(height: 20),
 
-            // 5. Chọn Danh mục (Grid các danh mục chuẩn)
-            const Text('Chọn Danh Mục', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+            // 5. Chọn Danh mục phân loại (Chỉ hiển thị các danh mục thuộc nhánh Thu hoặc Chi tương ứng)
+            Text(
+              _type == 'income' ? 'Phân Loại Thu Nhập' : 'Phân Loại Khoản Chi',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+            ),
             const SizedBox(height: 10),
 
             if (_isLoadingCategories)
               const Center(child: CircularProgressIndicator())
             else
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 4,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                  childAspectRatio: 0.95,
-                ),
-                itemCount: _categories.length,
-                itemBuilder: (context, index) {
-                  final cat = _categories[index];
-                  final isSelected = cat.code == _selectedCategoryCode;
-
-                  return GestureDetector(
-                    onTap: () => setState(() => _selectedCategoryCode = cat.code),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: isSelected ? cat.color.withOpacity(0.12) : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected ? cat.color : const Color(0xFFE2E8F0),
-                          width: isSelected ? 2 : 1,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(cat.iconData, color: cat.color, size: 24),
-                          const SizedBox(height: 6),
-                          Text(
-                            cat.name,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              color: isSelected ? cat.color : const Color(0xFF334155),
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
+              Builder(
+                builder: (context) {
+                  final displayedCategories = _categories.where((c) => c.type == _type).toList();
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 1.1,
                     ),
+                    itemCount: displayedCategories.length,
+                    itemBuilder: (context, index) {
+                      final cat = displayedCategories[index];
+                      final isSelected = cat.code == _selectedCategoryCode;
+
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedCategoryCode = cat.code),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSelected ? cat.color.withOpacity(0.12) : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? cat.color : const Color(0xFFE2E8F0),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(cat.iconData, color: cat.color, size: 24),
+                              const SizedBox(height: 6),
+                              Text(
+                                cat.name,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected ? cat.color : const Color(0xFF334155),
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),

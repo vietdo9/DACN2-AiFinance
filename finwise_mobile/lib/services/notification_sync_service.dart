@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
 import 'api_service.dart';
 
-/// Dịch vụ tự động bắt thông báo biến động số dư từ ShopeePay, MoMo, Ngân hàng
+/// Dịch vụ tự động bắt thông báo biến động số dư từ ShopeePay, MoMo, VNPAY, Ngân hàng
 class NotificationSyncService {
   static final NotificationSyncService _instance = NotificationSyncService._internal();
   factory NotificationSyncService() => _instance;
@@ -97,6 +97,8 @@ class NotificationSyncService {
             lower.contains('chuyển tiền') ||
             lower.contains('nạp tiền') ||
             lower.contains('nhận tiền') ||
+            lower.contains('cộng tiền') ||
+            lower.contains('cong tien') ||
             lower.contains('shopeepay') ||
             lower.contains('shopee') ||
             lower.contains('momo') ||
@@ -134,14 +136,21 @@ class NotificationSyncService {
           return;
         }
 
-        // 5. Tự động gọi PhoBERT AI phân loại danh mục nếu có ghi chú
-        String finalCategory = parsedTx['categoryCode'] ?? 'AN_UONG';
-        try {
-          final aiRes = await ApiService().classifyWithAi(parsedTx['note']);
-          if (aiRes != null && aiRes['category_code'] != null) {
-            finalCategory = aiRes['category_code'];
-          }
-        } catch (_) {}
+        // 5. Tự động gọi PhoBERT AI phân loại danh mục nếu là KHOẢN CHI
+        // NGUYÊN TẮC: 2 mục lớn Thu Nhập và Chi Tiêu là ưu tiên cao nhất!
+        // Nếu là Thu Nhập -> Bắt buộc giữ nguyên danh mục THU_NHAP, tuyệt đối không gọi PhoBERT gán vào Ăn uống/Mua sắm!
+        String finalCategory = 'THU_NHAP';
+        if (parsedTx['type'] == 'expense') {
+          finalCategory = parsedTx['categoryCode'] ?? 'AN_UONG';
+          try {
+            final aiRes = await ApiService().classifyWithAi(parsedTx['note']);
+            if (aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
+              finalCategory = aiRes['category_code'];
+            }
+          } catch (_) {}
+        } else {
+          finalCategory = 'THU_NHAP';
+        }
 
         // 6. Tự động lưu giao dịch vào FinWise qua API
         final success = await ApiService().createTransaction(
@@ -194,23 +203,9 @@ class NotificationSyncService {
       source = 'Ví VNPAY';
     }
 
-    // 1. Phân loại Thu / Chi
-    String type = 'expense';
-    if (text.contains('+') ||
-        lower.contains('cong') ||
-        lower.contains('cộng') ||
-        lower.contains('nhận được') ||
-        lower.contains('nhan duoc') ||
-        lower.contains('nạp thành công') ||
-        lower.contains('nap thanh cong') ||
-        lower.contains('nạp tiền vào') ||
-        lower.contains('hoàn tiền') ||
-        lower.contains('credit')) {
-      type = 'income';
-    }
-
-    // 2. Tách số tiền (Ưu tiên tìm số tiền đứng sau dấu + / - hoặc sau từ khóa biến động)
+    // 1. Tách số tiền (Ưu tiên tìm số tiền đứng sau dấu + / - hoặc sau từ khóa biến động)
     double detectedAmount = 0;
+    String? detectedTypeFromSign;
 
     // Loại bỏ phần số dư cuối (tránh nhận nhầm số dư tài khoản thành số tiền giao dịch)
     String textWithoutBalance = text;
@@ -223,34 +218,95 @@ class NotificationSyncService {
       textWithoutBalance = text.substring(0, cutIndex);
     }
 
-    // Regex 1: Số tiền có dấu + hoặc - rõ ràng (ví dụ: +50,000VND, -45.000đ)
-    final signedMatch = RegExp(r'(?:[+-])\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
-        .firstMatch(textWithoutBalance);
-    
-    if (signedMatch != null) {
-      final rawNum = signedMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
-      detectedAmount = double.tryParse(rawNum) ?? 0;
-    } else {
-      // Regex 2: Số tiền sau các từ khóa "thanh toán", "nhận", "số tiền", "gd"
-      final keywordMatch = RegExp(r'(?:thanh toán|chuyển|nhận|nạp|gd|số tiền|so tien|gia)[:\s]+(?:thành công\s+)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
-          .firstMatch(textWithoutBalance);
+    // Regex 0: Bắt số tiền viết tắt dạng k/K phổ thông tại VN (ví dụ: +250k, 250k, 50k, 100k, -50k)
+    final kMatch = RegExp(r'([+-])?\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(textWithoutBalance);
+    if (kMatch != null) {
+      final signStr = kMatch.group(1);
+      final numStr = kMatch.group(2)!.replaceAll(',', '.');
+      final parsedK = double.tryParse(numStr);
+      if (parsedK != null && parsedK > 0) {
+        detectedAmount = parsedK * 1000;
+        if (signStr == '+') detectedTypeFromSign = 'income';
+        if (signStr == '-') detectedTypeFromSign = 'expense';
+      }
+    }
 
+    // Regex 1: Số tiền có dấu + hoặc - rõ ràng (ví dụ: +250,000VND, -45.000đ)
+    if (detectedAmount == 0) {
+      final signedMatch = RegExp(r'([+-])\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
+          .firstMatch(textWithoutBalance);
+      if (signedMatch != null) {
+        final signStr = signedMatch.group(1);
+        final rawNum = signedMatch.group(2)!.replaceAll(RegExp(r'[^0-9]'), '');
+        detectedAmount = double.tryParse(rawNum) ?? 0;
+        if (signStr == '+') detectedTypeFromSign = 'income';
+        if (signStr == '-') detectedTypeFromSign = 'expense';
+      }
+    }
+
+    // Regex 2: Số tiền sau các từ khóa "thanh toán", "nhận", "cộng", "nạp", "số tiền", "gd"
+    if (detectedAmount == 0) {
+      final keywordMatch = RegExp(r'(?:thanh toán|chuyển|nhận|cộng|nạp|trừ|gd|số tiền|so tien|gia)[:\s]+(?:thành công\s+)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
+          .firstMatch(textWithoutBalance);
       if (keywordMatch != null) {
         final rawNum = keywordMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
         detectedAmount = double.tryParse(rawNum) ?? 0;
-      } else {
-        // Regex 3: Tìm bất kỳ số tiền nào có định dạng tiền tệ (từ 1.000đ trở lên)
-        final anyMatch = RegExp(r'\b([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)\b', caseSensitive: false)
-            .firstMatch(textWithoutBalance);
-        if (anyMatch != null) {
-          final rawNum = anyMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
-          detectedAmount = double.tryParse(rawNum) ?? 0;
-        }
+      }
+    }
+
+    // Regex 3: Tìm bất kỳ số tiền nào có định dạng tiền tệ (từ 1.000đ trở lên)
+    if (detectedAmount == 0) {
+      final anyMatch = RegExp(r'\b([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)\b', caseSensitive: false)
+          .firstMatch(textWithoutBalance);
+      if (anyMatch != null) {
+        final rawNum = anyMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
+        detectedAmount = double.tryParse(rawNum) ?? 0;
       }
     }
 
     if (detectedAmount < 1000) {
       return null; // Không trích xuất được số tiền hợp lệ
+    }
+
+    // 2. Phân loại 2 Mục Lớn: Thu Nhập vs Chi Tiêu (Ưu tiên tuyệt đối)
+    String type = 'expense';
+    if (detectedTypeFromSign != null) {
+      type = detectedTypeFromSign;
+    } else {
+      final hasIncomeKeywords = lower.contains('+') ||
+          lower.contains('cong') || lower.contains('cộng') ||
+          lower.contains('duoc cong') || lower.contains('được cộng') ||
+          lower.contains('nhan') || lower.contains('nhận') ||
+          lower.contains('da nhan') || lower.contains('đã nhận') ||
+          lower.contains('nap') || lower.contains('nạp') ||
+          lower.contains('tien vao') || lower.contains('tiền vào') ||
+          lower.contains('tien ve') || lower.contains('tiền về') ||
+          lower.contains('chuyen den') || lower.contains('chuyển đến') ||
+          lower.contains('hoan') || lower.contains('hoàn') || lower.contains('refund') ||
+          lower.contains('tang') || lower.contains('tăng') ||
+          lower.contains('credit') || lower.contains('cr:');
+
+      final hasExpenseKeywords = lower.contains('-') ||
+          lower.contains('tru') || lower.contains('trừ') ||
+          lower.contains('bi tru') || lower.contains('bị trừ') ||
+          lower.contains('thanh toan') || lower.contains('thanh toán') ||
+          lower.contains('rut tien') || lower.contains('rút tiền') ||
+          lower.contains('chuyen di') || lower.contains('chuyển đi') ||
+          lower.contains('giam') || lower.contains('giảm') ||
+          lower.contains('debit') || lower.contains('dr:');
+
+      if (hasIncomeKeywords && !hasExpenseKeywords) {
+        type = 'income';
+      } else if (hasIncomeKeywords && hasExpenseKeywords) {
+        // Nếu có cả 2 (ví dụ: "Nhận tiền từ chuyển khoản"), ưu tiên các từ thể hiện tiền vào
+        if (lower.contains('cộng') || lower.contains('cong') || lower.contains('nhận') || lower.contains('nhan') || lower.contains('nạp') || lower.contains('nap')) {
+          type = 'income';
+        } else {
+          type = 'expense';
+        }
+      } else {
+        type = 'expense';
+      }
     }
 
     // 3. Trích xuất nội dung / ghi chú
@@ -259,7 +315,6 @@ class NotificationSyncService {
     if (refMatch != null) {
       note = '$source: ${refMatch.group(1)!.trim()}';
     } else {
-      // Tóm tắt tiêu đề & nguồn
       note = '$source: ${type == 'income' ? 'Nhận tiền' : 'Thanh toán'}';
     }
 
@@ -267,11 +322,8 @@ class NotificationSyncService {
       note = note.substring(0, 60);
     }
 
-    // 4. Gợi ý Danh mục mặc định
-    String categoryCode = type == 'income' ? 'THU_NHAP' : 'AN_UONG';
-    if (source == 'ShopeePay' || source == 'Ví VNPAY') {
-      categoryCode = type == 'income' ? 'THU_NHAP' : 'MUA_SAM';
-    }
+    // 4. Gán danh mục chuẩn theo 2 mục lớn
+    final categoryCode = type == 'income' ? 'THU_NHAP' : 'AN_UONG';
 
     return {
       'amount': detectedAmount,

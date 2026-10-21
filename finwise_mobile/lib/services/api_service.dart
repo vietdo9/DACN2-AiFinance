@@ -245,6 +245,8 @@ class ApiService {
       CategoryModel(code: 'HOC_TAP', name: 'Học tập & Phát triển', type: 'expense', icon: 'school', color: const Color(0xFF14B8A6)),
       CategoryModel(code: 'TIET_KIEM_DAU_TU', name: 'Tiết kiệm & Đầu tư', type: 'expense', icon: 'savings', color: const Color(0xFF06B6D4)),
       CategoryModel(code: 'THU_NHAP', name: 'Thu nhập & Lương', type: 'income', icon: 'payments', color: const Color(0xFF22C55E)),
+      CategoryModel(code: 'TIEN_CHUYEN_DEN', name: 'Nhận Chuyển Khoản', type: 'income', icon: 'account_balance_wallet', color: const Color(0xFF10B981)),
+      CategoryModel(code: 'THU_KHAC', name: 'Thu Khác & Thưởng', type: 'income', icon: 'volunteer_activism', color: const Color(0xFF14B8A6)),
     ];
   }
 

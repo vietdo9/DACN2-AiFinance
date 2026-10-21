@@ -127,7 +127,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                       children: [
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => setModalState(() => editType = 'expense'),
+                            onTap: () {
+                              setModalState(() {
+                                editType = 'expense';
+                                final firstExpense = _categories.firstWhere((c) => c.type == 'expense', orElse: () => _categories.first);
+                                editCategoryCode = firstExpense.code;
+                              });
+                            },
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
@@ -147,7 +153,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                         ),
                         Expanded(
                           child: GestureDetector(
-                            onTap: () => setModalState(() => editType = 'income'),
+                            onTap: () {
+                              setModalState(() {
+                                editType = 'income';
+                                final firstIncome = _categories.firstWhere((c) => c.type == 'income', orElse: () => _categories.first);
+                                editCategoryCode = firstIncome.code;
+                              });
+                            },
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               decoration: BoxDecoration(
@@ -234,53 +246,61 @@ class _TransactionsScreenState extends State<TransactionsScreen> with SingleTick
                   ),
                   const SizedBox(height: 10),
 
-                  // 5. Chọn Danh Mục (Grid 10 danh mục)
-                  const Text('Chọn Danh Mục', style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600)),
+                  // 5. Chọn Danh Mục Phân Loại (Lọc chính xác theo Thu hoặc Chi)
+                  Text(
+                    editType == 'income' ? 'Phân Loại Thu Nhập' : 'Phân Loại Khoản Chi',
+                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 8),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 5,
-                      crossAxisSpacing: 6,
-                      mainAxisSpacing: 6,
-                      childAspectRatio: 0.9,
-                    ),
-                    itemCount: _categories.length,
-                    itemBuilder: (context, index) {
-                      final cat = _categories[index];
-                      final isSelected = cat.code == editCategoryCode;
-
-                      return GestureDetector(
-                        onTap: () => setModalState(() => editCategoryCode = cat.code),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isSelected ? cat.color.withValues(alpha: 0.15) : Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: isSelected ? cat.color : const Color(0xFFE2E8F0),
-                              width: isSelected ? 2 : 1,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(cat.iconData, color: cat.color, size: 18),
-                              const SizedBox(height: 4),
-                              Text(
-                                cat.name,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 8.5,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                  color: isSelected ? cat.color : const Color(0xFF334155),
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
+                  Builder(
+                    builder: (context) {
+                      final displayedCategories = _categories.where((c) => c.type == editType).toList();
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: editType == 'income' ? 3 : 5,
+                          crossAxisSpacing: 6,
+                          mainAxisSpacing: 6,
+                          childAspectRatio: editType == 'income' ? 1.1 : 0.9,
                         ),
+                        itemCount: displayedCategories.length,
+                        itemBuilder: (context, index) {
+                          final cat = displayedCategories[index];
+                          final isSelected = cat.code == editCategoryCode;
+
+                          return GestureDetector(
+                            onTap: () => setModalState(() => editCategoryCode = cat.code),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: isSelected ? cat.color.withValues(alpha: 0.15) : Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected ? cat.color : const Color(0xFFE2E8F0),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(cat.iconData, color: cat.color, size: 20),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    cat.name,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      color: isSelected ? cat.color : const Color(0xFF334155),
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
