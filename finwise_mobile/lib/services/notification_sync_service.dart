@@ -24,8 +24,7 @@ class NotificationSyncService {
     'com.vib.myvib2',
     'com.vn.vib.mobileapp',
     'com.vib.corp',
-    // Ví điện tử & TMĐT
-    'com.shopee.vn',
+    // Ví điện tử chính thống
     'com.airpay.consumer',
     'com.mservice.momopay',
     'vn.com.vng.zalopay',
@@ -115,7 +114,6 @@ class NotificationSyncService {
             lower.contains('cộng tiền') ||
             lower.contains('cong tien') ||
             lower.contains('shopeepay') ||
-            lower.contains('shopee') ||
             lower.contains('momo') ||
             lower.contains('zalopay') ||
             lower.contains('vietcombank') ||
@@ -130,16 +128,70 @@ class NotificationSyncService {
           return; // Không phải thông báo tài chính
         }
 
-        // Bỏ qua tin nhắn quảng cáo / voucher / khuyến mãi không có biến động tiền thật
-        final isPromo = lower.contains('khuyến mãi') ||
-            lower.contains('khuyen mai') ||
-            lower.contains('ưu đãi') ||
-            lower.contains('uu dai') ||
-            lower.contains('voucher') ||
-            lower.contains('mã giảm') ||
-            lower.contains('ma giam') ||
-            (lower.contains('giảm ') && lower.contains('mã'));
-        if (isPromo && !lower.contains('biến động số dư') && !lower.contains('giao dịch thành công') && !lower.contains('số dư:')) {
+        // 1.1 LỌC TUYỆT ĐỐI CÁC THÔNG BÁO VOUCHER / QUẢNG CÁO / KHUYẾN MÃI / QUÀ TẶNG
+        // Ngân hàng và ví điện tử gửi rất nhiều tin tiếp thị (ví dụ: Tặng bạn voucher 50k, Nhận quà 100k...)
+        // Những tin nhắn này KHÔNG PHẢI biến động số dư thực tế -> Bỏ qua ngay lập tức!
+        final isMarketingOrVoucher = lower.contains('voucher') ||
+            lower.contains('khuyến mãi') || lower.contains('khuyen mai') ||
+            lower.contains('ưu đãi') || lower.contains('uu dai') ||
+            lower.contains('mã giảm') || lower.contains('ma giam') ||
+            lower.contains('phiếu giảm') || lower.contains('phieu giam') ||
+            lower.contains('mã ưu đãi') || lower.contains('ma uu dai') ||
+            lower.contains('nhập mã') || lower.contains('nhap ma') ||
+            lower.contains('freeship') || lower.contains('miễn phí vận chuyển') ||
+            lower.contains('tặng bạn') || lower.contains('tang ban') ||
+            lower.contains('quà tặng') || lower.contains('qua tang') ||
+            lower.contains('gói quà') || lower.contains('goi qua') ||
+            lower.contains('tri ân') || lower.contains('săn sale') || lower.contains('san sale') ||
+            lower.contains('flash sale') || lower.contains('hoàn xu') || lower.contains('hoan xu') ||
+            lower.contains('xu shopee') || lower.contains('điểm thưởng') || lower.contains('diem thuong') ||
+            lower.contains('chiết khấu') || lower.contains('chiet khau') ||
+            lower.contains('vòng quay') || lower.contains('quay số') ||
+            lower.contains('hết hạn') || lower.contains('het han') ||
+            lower.contains('sắp hết hạn') || lower.contains('sap het han') ||
+            lower.contains('đơn từ 0') || lower.contains('áp dụng cho đơn') ||
+            lower.contains('nhận voucher') || lower.contains('nhan voucher') ||
+            lower.contains('nhận ưu đãi') || lower.contains('nhan uu dai') ||
+            lower.contains('chúc mừng bạn nhận') || lower.contains('chuc mung ban nhan');
+
+        if (isMarketingOrVoucher) {
+          debugPrint('[NotificationSyncService] 🛑 Bỏ qua tin quảng cáo/voucher: $title');
+          return;
+        }
+
+        // 1.2 ĐIỀU KIỆN TIÊN QUYẾT: PHẢI CÓ TÍN HIỆU BIẾN ĐỘNG SỐ DƯ TÀI KHOẢN THỰC TẾ
+        final hasBalanceKeyword = lower.contains('biến động số dư') ||
+            lower.contains('bien dong so du') ||
+            lower.contains('thay đổi số dư') ||
+            lower.contains('thay doi so du') ||
+            lower.contains('biến động tk') ||
+            lower.contains('bien dong tk') ||
+            lower.contains('số dư:') ||
+            lower.contains('so du:') ||
+            lower.contains('số dư cuối') ||
+            lower.contains('so du cuoi') ||
+            lower.contains('số dư khả dụng') ||
+            lower.contains('so du kha dung') ||
+            lower.contains('balance:') ||
+            lower.contains('số dư tk') ||
+            lower.contains('so du tk');
+
+        final hasTransactionEvent = lower.contains('thanh toán thành công') ||
+            lower.contains('thanh toan thanh cong') ||
+            lower.contains('chuyển khoản thành công') ||
+            lower.contains('chuyen khoan thanh cong') ||
+            lower.contains('chuyển tiền thành công') ||
+            lower.contains('chuyen tien thanh cong') ||
+            lower.contains('nạp tiền thành công') ||
+            lower.contains('nap tien thanh cong') ||
+            lower.contains('rút tiền thành công') ||
+            lower.contains('rut tien thanh cong') ||
+            (lower.contains('giao dịch thành công') && (lower.contains('mã') || lower.contains('ref') || lower.contains('ft') || lower.contains('tiền')));
+
+        final hasSignedAmount = RegExp(r'([+-])\s*[0-9]{1,3}(?:[.,][0-9]{3})+\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false).hasMatch(combinedText);
+
+        if (!hasBalanceKeyword && !hasTransactionEvent && !hasSignedAmount) {
+          debugPrint('[NotificationSyncService] ⚠️ Bỏ qua vì không phải biến động số dư thực tế: $title');
           return;
         }
 
@@ -259,8 +311,8 @@ class NotificationSyncService {
       textWithoutBalance = text.substring(0, cutIndex);
     }
 
-    // Regex 0: Bắt số tiền viết tắt dạng k/K phổ thông tại VN (ví dụ: +250k, 250k, 50k, 100k, -50k)
-    final kMatch = RegExp(r'([+-])?\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(textWithoutBalance);
+    // Regex 0: Bắt số tiền viết tắt dạng k/K chỉ khi có dấu + / - rõ ràng (ví dụ: +250k, -50k)
+    final kMatch = RegExp(r'([+-])\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(textWithoutBalance);
     if (kMatch != null) {
       final signStr = kMatch.group(1);
       final numStr = kMatch.group(2)!.replaceAll(',', '.');
@@ -285,9 +337,9 @@ class NotificationSyncService {
       }
     }
 
-    // Regex 2: Số tiền sau các từ khóa "thanh toán", "nhận", "cộng", "nạp", "số tiền", "gd"
+    // Regex 2: Số tiền sau các từ khóa ngân hàng "thanh toán", "cộng", "trừ", "số tiền"
     if (detectedAmount == 0) {
-      final keywordMatch = RegExp(r'(?:thanh toán|chuyển|nhận|cộng|nạp|trừ|gd|số tiền|so tien|gia)[:\s]+(?:thành công\s+)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
+      final keywordMatch = RegExp(r'(?:thanh toán|chuyển tiền|chuyển khoản|nhận tiền từ|cộng tiền|trừ tiền|số tiền|so tien)[:\s]+(?:thành công\s+)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
           .firstMatch(textWithoutBalance);
       if (keywordMatch != null) {
         final rawNum = keywordMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
@@ -314,17 +366,17 @@ class NotificationSyncService {
     if (detectedTypeFromSign != null) {
       type = detectedTypeFromSign;
     } else {
+      // Chỉ nhận diện là Thu Nhập khi có từ khóa biến động cộng tiền ngân hàng cụ thể
+      // TUYỆT ĐỐI không dùng 'tang' (trùng 'tặng') hay 'nhan' (trùng 'nhận voucher/quà')
       final hasIncomeKeywords = lower.contains('+') ||
-          lower.contains('cong') || lower.contains('cộng') ||
+          lower.contains('cong tien') || lower.contains('cộng tiền') ||
           lower.contains('duoc cong') || lower.contains('được cộng') ||
-          lower.contains('nhan') || lower.contains('nhận') ||
-          lower.contains('da nhan') || lower.contains('đã nhận') ||
-          lower.contains('nap') || lower.contains('nạp') ||
+          lower.contains('nhan tien tu') || lower.contains('nhận tiền từ') ||
+          lower.contains('nhan duoc tien') || lower.contains('nhận được tiền') ||
           lower.contains('tien vao') || lower.contains('tiền vào') ||
           lower.contains('tien ve') || lower.contains('tiền về') ||
-          lower.contains('chuyen den') || lower.contains('chuyển đến') ||
-          lower.contains('hoan') || lower.contains('hoàn') || lower.contains('refund') ||
-          lower.contains('tang') || lower.contains('tăng') ||
+          lower.contains('chuyen den tai khoan') || lower.contains('chuyển đến tài khoản') ||
+          lower.contains('hoan tien') || lower.contains('hoàn tiền') || lower.contains('refund') ||
           lower.contains('credit') || lower.contains('cr:');
 
       final hasExpenseKeywords = lower.contains('-') ||
@@ -333,14 +385,12 @@ class NotificationSyncService {
           lower.contains('thanh toan') || lower.contains('thanh toán') ||
           lower.contains('rut tien') || lower.contains('rút tiền') ||
           lower.contains('chuyen di') || lower.contains('chuyển đi') ||
-          lower.contains('giam') || lower.contains('giảm') ||
           lower.contains('debit') || lower.contains('dr:');
 
       if (hasIncomeKeywords && !hasExpenseKeywords) {
         type = 'income';
       } else if (hasIncomeKeywords && hasExpenseKeywords) {
-        // Nếu có cả 2 (ví dụ: "Nhận tiền từ chuyển khoản"), ưu tiên các từ thể hiện tiền vào
-        if (lower.contains('cộng') || lower.contains('cong') || lower.contains('nhận') || lower.contains('nhan') || lower.contains('nạp') || lower.contains('nap')) {
+        if (lower.contains('cộng tiền') || lower.contains('cong tien') || lower.contains('nhận tiền từ') || lower.contains('nhan tien tu')) {
           type = 'income';
         } else {
           type = 'expense';

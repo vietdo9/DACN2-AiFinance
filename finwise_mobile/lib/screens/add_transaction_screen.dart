@@ -265,8 +265,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     double detectedAmount = 0;
     String? detectedTypeFromSign;
 
-    // Regex 0: Bắt số tiền viết tắt dạng k/K (ví dụ: +250k, 250k, 50k, 100k, -50k)
-    final kMatch = RegExp(r'([+-])?\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(raw);
+    // Regex 0: Bắt số tiền viết tắt dạng k/K có dấu + / - rõ ràng (ví dụ: +250k, -50k)
+    final kMatch = RegExp(r'([+-])\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(raw);
     if (kMatch != null) {
       final signStr = kMatch.group(1);
       final numStr = kMatch.group(2)!.replaceAll(',', '.');
@@ -309,16 +309,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       detectedType = detectedTypeFromSign;
     } else {
       final hasIncomeKeywords = textLower.contains('+') ||
-          textLower.contains('cong') || textLower.contains('cộng') ||
+          textLower.contains('cong tien') || textLower.contains('cộng tiền') ||
           textLower.contains('duoc cong') || textLower.contains('được cộng') ||
-          textLower.contains('nhan') || textLower.contains('nhận') ||
-          textLower.contains('da nhan') || textLower.contains('đã nhận') ||
-          textLower.contains('nap') || textLower.contains('nạp') ||
+          textLower.contains('nhan tien tu') || textLower.contains('nhận tiền từ') ||
+          textLower.contains('nhan duoc tien') || textLower.contains('nhận được tiền') ||
           textLower.contains('tien vao') || textLower.contains('tiền vào') ||
           textLower.contains('tien ve') || textLower.contains('tiền về') ||
-          textLower.contains('chuyen den') || textLower.contains('chuyển đến') ||
-          textLower.contains('hoan') || textLower.contains('hoàn') || textLower.contains('refund') ||
-          textLower.contains('tang') || textLower.contains('tăng') ||
+          textLower.contains('chuyen den tai khoan') || textLower.contains('chuyển đến tài khoản') ||
+          textLower.contains('hoan tien') || textLower.contains('hoàn tiền') || textLower.contains('refund') ||
           textLower.contains('credit') || textLower.contains('cr:');
 
       final hasExpenseKeywords = textLower.contains('-') ||
@@ -327,13 +325,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           textLower.contains('thanh toan') || textLower.contains('thanh toán') ||
           textLower.contains('rut tien') || textLower.contains('rút tiền') ||
           textLower.contains('chuyen di') || textLower.contains('chuyển đi') ||
-          textLower.contains('giam') || textLower.contains('giảm') ||
           textLower.contains('debit') || textLower.contains('dr:');
 
       if (hasIncomeKeywords && !hasExpenseKeywords) {
         detectedType = 'income';
       } else if (hasIncomeKeywords && hasExpenseKeywords) {
-        if (textLower.contains('cộng') || textLower.contains('cong') || textLower.contains('nhận') || textLower.contains('nhan') || textLower.contains('nạp') || textLower.contains('nap')) {
+        if (textLower.contains('cộng tiền') || textLower.contains('cong tien') || textLower.contains('nhận tiền từ') || textLower.contains('nhan tien tu')) {
           detectedType = 'income';
         } else {
           detectedType = 'expense';
