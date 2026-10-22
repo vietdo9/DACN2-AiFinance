@@ -24,7 +24,8 @@ class NotificationSyncService {
     'com.vib.myvib2',
     'com.vn.vib.mobileapp',
     'com.vib.corp',
-    // Ví điện tử chính thống
+    // Ví điện tử & TMĐT (Chỉ theo dõi thanh toán đơn hàng thành công, chặn sạch voucher)
+    'com.shopee.vn',
     'com.airpay.consumer',
     'com.mservice.momopay',
     'vn.com.vng.zalopay',
@@ -114,6 +115,7 @@ class NotificationSyncService {
             lower.contains('cộng tiền') ||
             lower.contains('cong tien') ||
             lower.contains('shopeepay') ||
+            lower.contains('shopee') ||
             lower.contains('momo') ||
             lower.contains('zalopay') ||
             lower.contains('vietcombank') ||
