@@ -130,6 +130,19 @@ class NotificationSyncService {
           return; // Không phải thông báo tài chính
         }
 
+        // Bỏ qua tin nhắn quảng cáo / voucher / khuyến mãi không có biến động tiền thật
+        final isPromo = lower.contains('khuyến mãi') ||
+            lower.contains('khuyen mai') ||
+            lower.contains('ưu đãi') ||
+            lower.contains('uu dai') ||
+            lower.contains('voucher') ||
+            lower.contains('mã giảm') ||
+            lower.contains('ma giam') ||
+            (lower.contains('giảm ') && lower.contains('mã'));
+        if (isPromo && !lower.contains('biến động số dư') && !lower.contains('giao dịch thành công') && !lower.contains('số dư:')) {
+          return;
+        }
+
         // 2. Chống lặp (Deduplication) - Tránh bắt 2 lần cùng một thông báo trong vòng 3 phút
         final timeKey = DateTime.now().millisecondsSinceEpoch ~/ (1000 * 180);
         final notifHash = '$packageName|$title|$content|$timeKey';
@@ -160,7 +173,10 @@ class NotificationSyncService {
         if (parsedTx['type'] == 'expense') {
           finalCategory = parsedTx['categoryCode'] ?? 'AN_UONG';
           try {
-            final aiRes = await ApiService().classifyWithAi(parsedTx['note']);
+            final textForAi = (parsedTx['transferContent'] as String? ?? '').isNotEmpty
+                ? parsedTx['transferContent'] as String
+                : parsedTx['note'] as String;
+            final aiRes = await ApiService().classifyWithAi(textForAi);
             if (aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
               finalCategory = aiRes['category_code'];
             }
@@ -334,26 +350,77 @@ class NotificationSyncService {
       }
     }
 
-    // 3. Trích xuất nội dung / ghi chú
-    String note = '';
-    final refMatch = RegExp(r'(?:nd|ref|lời nhắn|nội dung|noi dung|cho|tại|tai)[:\s]+([^.\n]+)', caseSensitive: false).firstMatch(text);
-    if (refMatch != null) {
-      note = '$source: ${refMatch.group(1)!.trim()}';
+    // 3. Trích xuất người nhận/gửi và nội dung chuyển tiền
+    String counterparty = '';
+    final partyRegex = RegExp(
+      r'(?:đến|den|tới|toi|gửi đến|gui den|chuyển đến|chuyen den|cho|từ|tu|người nhận|nguoi nhan|người gửi|nguoi gui)[:\s]+([A-Za-z0-9\sÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴÝỶỸ]{3,35})(?=[.,\n|]|\s+(?:lúc|luc|ngày|ngay|vào|vao|nội dung|noi dung|nd|ref|số dư|so du)|$)',
+      caseSensitive: false,
+    );
+    final partyMatch = partyRegex.firstMatch(text);
+    if (partyMatch != null) {
+      final rawParty = partyMatch.group(1)!.trim();
+      if (!RegExp(r'^(vnd|vnđ|d|đ|tk|tài khoản|so du|số dư|thành công|thanh cong)\b', caseSensitive: false).hasMatch(rawParty)) {
+        counterparty = rawParty;
+      }
+    }
+
+    // 4. Tìm nội dung chuyển tiền (Phải có \b để không bị ăn nhầm 'ND' trong 'VND')
+    String transferContent = '';
+    final contentRegex = RegExp(
+      r'(?:\bnd\b|\bnoi dung\b|\bnội dung\b|\blời nhắn\b|\bloi nhan\b|\bref\b|\blý do\b|\bly do\b)[:\s]+([^.\n|]+)',
+      caseSensitive: false,
+    );
+    final contentMatch = contentRegex.firstMatch(text);
+    if (contentMatch != null) {
+      transferContent = contentMatch.group(1)!.trim();
+      final dotParts = transferContent.split('.');
+      if (dotParts.length > 1 && dotParts.last.trim().length >= 3) {
+        transferContent = dotParts.last.trim();
+      }
+    }
+
+    if (transferContent.isEmpty) {
+      final taiRegex = RegExp(r'\b(?:tại|tai)\s+([^.\n|]+)', caseSensitive: false);
+      final taiMatch = taiRegex.firstMatch(text);
+      if (taiMatch != null) {
+        transferContent = 'Tại ${taiMatch.group(1)!.trim()}';
+      }
+    }
+
+    // 5. Kết hợp thành ghi chú hoàn chỉnh và ý nghĩa
+    String meaningfulText = '';
+    if (transferContent.isNotEmpty && counterparty.isNotEmpty) {
+      if (transferContent.toLowerCase().contains(counterparty.toLowerCase())) {
+        meaningfulText = transferContent;
+      } else {
+        meaningfulText = type == 'income'
+            ? '$transferContent (Từ: $counterparty)'
+            : '$transferContent (Đến: $counterparty)';
+      }
+    } else if (transferContent.isNotEmpty) {
+      meaningfulText = transferContent;
+    } else if (counterparty.isNotEmpty) {
+      meaningfulText = type == 'income'
+          ? 'Nhận từ $counterparty'
+          : 'Chuyển cho $counterparty';
     } else {
-      note = '$source: ${type == 'income' ? 'Nhận tiền' : 'Thanh toán'}';
+      meaningfulText = type == 'income' ? 'Nhận tiền chuyển khoản' : 'Thanh toán chuyển khoản';
     }
 
-    if (note.length > 60) {
-      note = note.substring(0, 60);
+    String note = '$source: $meaningfulText';
+    if (note.length > 80) {
+      note = note.substring(0, 80);
     }
 
-    // 4. Gán danh mục chuẩn theo 2 mục lớn
+    // 6. Gán danh mục chuẩn theo 2 mục lớn
     final categoryCode = type == 'income' ? 'THU_NHAP' : 'AN_UONG';
 
     return {
       'amount': detectedAmount,
       'type': type,
       'note': note,
+      'transferContent': transferContent,
+      'counterparty': counterparty,
       'categoryCode': categoryCode,
       'source': source,
     };

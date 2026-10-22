@@ -72,8 +72,19 @@ class _TransactionsScreenState extends State<TransactionsScreen>
     String editType = tx.type;
     String editCategoryCode = tx.categoryCode;
     DateTime editDate = tx.transactionDate;
+
+    // Phân tách ghi chú và người nhận/gửi nếu đã có sẵn
+    String initialNote = tx.note;
+    String initialCounterparty = '';
+    final partyInNote = RegExp(r'\((?:Đến|Từ|den|tu|to|from)[:\s]+([^)]+)\)', caseSensitive: false).firstMatch(tx.note);
+    if (partyInNote != null) {
+      initialCounterparty = partyInNote.group(1)!.trim();
+      initialNote = tx.note.replaceAll(partyInNote.group(0)!, '').trim();
+    }
+
     final amountController = TextEditingController(text: tx.amount.toInt().toString());
-    final noteController = TextEditingController(text: tx.note);
+    final noteController = TextEditingController(text: initialNote);
+    final counterpartyController = TextEditingController(text: initialCounterparty);
     bool isSaving = false;
 
     showModalBottomSheet(
@@ -232,7 +243,32 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                   TextField(
                     controller: noteController,
                     decoration: InputDecoration(
-                      hintText: 'Nhập tên quán, món ăn hoặc người nhận...',
+                      hintText: 'Nhập món ăn, mua sắm hoặc lý do (ví dụ: tiền ăn hủ tiếu)...',
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 3.1. Ô nhập Người nhận / Người gửi
+                  Text(
+                    isIncome ? 'Nhận Từ Ai / Người Gửi (Tùy chọn)' : 'Gửi Cho Ai / Người Nhận (Tùy chọn)',
+                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: counterpartyController,
+                    decoration: InputDecoration(
+                      hintText: isIncome ? 'Ví dụ: Công ty, Anh Nam, Bố mẹ...' : 'Ví dụ: Quán hủ tiếu Cô Ba, Anh Tuấn...',
+                      prefixIcon: Icon(
+                        isIncome ? Icons.person_add_alt_1_rounded : Icons.person_outline_rounded,
+                        color: isIncome ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
+                        size: 20,
+                      ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       enabledBorder: OutlineInputBorder(
@@ -433,10 +469,19 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                                     }
                                   }
 
+                                  final rawNote = noteController.text.trim();
+                                  final party = counterpartyController.text.trim();
+                                  String finalNote = rawNote;
+                                  if (party.isNotEmpty) {
+                                    finalNote = editType == 'income'
+                                        ? (rawNote.isNotEmpty ? '$rawNote (Từ: $party)' : 'Nhận từ $party')
+                                        : (rawNote.isNotEmpty ? '$rawNote (Đến: $party)' : 'Chuyển cho $party');
+                                  }
+
                                   final success = await ApiService().updateTransaction(
                                     id: tx.id,
                                     amount: amt,
-                                    note: noteController.text.trim(),
+                                    note: finalNote,
                                     type: editType,
                                     categoryCode: finalCatCode,
                                     transactionDate: DateFormat('yyyy-MM-dd').format(editDate),

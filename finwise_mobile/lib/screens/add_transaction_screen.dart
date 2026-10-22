@@ -15,6 +15,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   String _type = 'expense'; // 'expense' hoặc 'income'
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
+  final _counterpartyController = TextEditingController();
   DateTime _selectedDate = DateTime.now();
 
   List<CategoryModel> _categories = [];
@@ -23,6 +24,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   bool _isClassifying = false;
   bool _isScanningBill = false;
   String? _aiFeedbackMessage;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _noteController.dispose();
+    _counterpartyController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -46,15 +55,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   // Gọi PhoBERT AI để tự phân loại từ câu ghi chú
   Future<void> _triggerAiClassify() async {
     final note = _noteController.text.trim();
-    if (note.isEmpty) {
+    final counterparty = _counterpartyController.text.trim();
+    final textForAi = note.isNotEmpty ? note : counterparty;
+    if (textForAi.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập ghi chú giao dịch trước khi gọi AI!')),
+        const SnackBar(content: Text('Vui lòng nhập ghi chú hoặc người nhận/gửi trước khi gọi AI!')),
       );
       return;
     }
 
     setState(() => _isClassifying = true);
-    final result = await ApiService().classifyWithAi(note);
+    final result = await ApiService().classifyWithAi(textForAi);
 
     if (mounted) {
       setState(() => _isClassifying = false);
@@ -351,14 +362,40 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       detectedHour = int.tryParse(timeMatch.group(1)!) ?? detectedHour;
     }
 
-    // 5. Trích xuất ghi chú / nội dung giao dịch
+    // 5. Trích xuất người nhận/gửi và nội dung chuyển tiền
+    String detectedCounterparty = '';
+    final partyRegex = RegExp(
+      r'(?:đến|den|tới|toi|gửi đến|gui den|chuyển đến|chuyen den|cho|từ|tu|người nhận|nguoi nhan|người gửi|nguoi gui)[:\s]+([A-Za-z0-9\sÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴÝỶỸ]{3,35})(?=[.,\n|]|\s+(?:lúc|luc|ngày|ngay|vào|vao|nội dung|noi dung|nd|ref|số dư|so du)|$)',
+      caseSensitive: false,
+    );
+    final partyMatch = partyRegex.firstMatch(raw);
+    if (partyMatch != null) {
+      final rawParty = partyMatch.group(1)!.trim();
+      if (!RegExp(r'^(vnd|vnđ|d|đ|tk|tài khoản|so du|số dư|thành công|thanh cong)\b', caseSensitive: false).hasMatch(rawParty)) {
+        detectedCounterparty = rawParty;
+      }
+    }
+
     String detectedNote = '';
-    final ndMatch = RegExp(r'(?:nd|noidung|noi dung|ref|tai|cho|toi)[:\s]+([^.]+)', caseSensitive: false).firstMatch(raw);
+    final ndMatch = RegExp(
+      r'(?:\bnd\b|\bnoi dung\b|\bnội dung\b|\blời nhắn\b|\bloi nhan\b|\bref\b|\blý do\b|\bly do\b)[:\s]+([^.\n|]+)',
+      caseSensitive: false,
+    ).firstMatch(raw);
+
     if (ndMatch != null) {
       detectedNote = ndMatch.group(1)!.trim();
+      final dotParts = detectedNote.split('.');
+      if (dotParts.length > 1 && dotParts.last.trim().length >= 3) {
+        detectedNote = dotParts.last.trim();
+      }
     } else {
-      detectedNote = raw.split('\n').first.trim();
-      if (detectedNote.length > 40) detectedNote = detectedNote.substring(0, 40);
+      final taiMatch = RegExp(r'\b(?:tại|tai)\s+([^.\n|]+)', caseSensitive: false).firstMatch(raw);
+      if (taiMatch != null) {
+        detectedNote = 'Tại ${taiMatch.group(1)!.trim()}';
+      } else {
+        detectedNote = raw.split('\n').first.trim();
+        if (detectedNote.length > 40) detectedNote = detectedNote.substring(0, 40);
+      }
     }
 
     // 6. Gán danh mục theo 2 Mục Lớn:
@@ -377,6 +414,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _amountController.text = detectedAmount.toInt().toString();
       }
       _noteController.text = detectedNote;
+      _counterpartyController.text = detectedCounterparty;
       _selectedDate = detectedDate;
       if (_categories.any((c) => c.code == suggestedCategory)) {
         _selectedCategoryCode = suggestedCategory;
@@ -387,14 +425,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     });
 
     // Chỉ gọi PhoBERT AI phân loại chi tiết NẾU LÀ KHOẢN CHI
-    if (detectedType == 'expense' && detectedNote.isNotEmpty) {
-      final aiRes = await ApiService().classifyWithAi(detectedNote);
+    if (detectedType == 'expense' && (detectedNote.isNotEmpty || detectedCounterparty.isNotEmpty)) {
+      final textForAi = detectedNote.isNotEmpty ? detectedNote : detectedCounterparty;
+      final aiRes = await ApiService().classifyWithAi(textForAi);
       if (mounted && aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
         final catCode = aiRes['category_code'];
         if (_categories.any((c) => c.code == catCode)) {
           setState(() {
             _selectedCategoryCode = catCode;
-            _aiFeedbackMessage = '✨ Đã nhận diện: $detectedNote (${aiRes['category_name']})';
+            _aiFeedbackMessage = '✨ Đã nhận diện: $textForAi (${aiRes['category_name']})';
           });
         }
       }
@@ -526,9 +565,24 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       if (!isExpenseCat) finalCat = 'AN_UONG';
     }
 
+    final rawNote = _noteController.text.trim();
+    final counterparty = _counterpartyController.text.trim();
+    String finalNote = rawNote;
+    if (counterparty.isNotEmpty) {
+      if (rawNote.isNotEmpty) {
+        finalNote = _type == 'income'
+            ? '$rawNote (Từ: $counterparty)'
+            : '$rawNote (Đến: $counterparty)';
+      } else {
+        finalNote = _type == 'income'
+            ? 'Nhận từ $counterparty'
+            : 'Chuyển cho $counterparty';
+      }
+    }
+
     final success = await ApiService().createTransaction(
       amount: amount,
-      note: _noteController.text.trim(),
+      note: finalNote,
       type: _type,
       categoryCode: finalCat,
     );
@@ -839,6 +893,50 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                       style: const TextStyle(color: Color(0xFF4F46E5), fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // 3.1. Người nhận hoặc Người gửi (Đối tác)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _type == 'income' ? Icons.person_add_alt_1_rounded : Icons.person_outline_rounded,
+                        size: 18,
+                        color: _type == 'income' ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _type == 'income' ? 'Nhận Từ Ai / Người Gửi' : 'Gửi Cho Ai / Người Nhận',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                      ),
+                      const Spacer(),
+                      const Text('(Tùy chọn)', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _counterpartyController,
+                    decoration: InputDecoration(
+                      hintText: _type == 'income'
+                          ? 'Ví dụ: Công ty A trả lương, Anh Nam chuyển, Bố mẹ...'
+                          : 'Ví dụ: Quán hủ tiếu Cô Ba, Anh Tuấn, Shopee...',
+                      hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                      border: InputBorder.none,
+                    ),
+                  ),
                 ],
               ),
             ),
