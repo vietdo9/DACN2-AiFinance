@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../models/category_model.dart';
 import '../services/api_service.dart';
 
@@ -468,151 +467,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _aiFeedbackMessage = '⚡ Đang quét hóa đơn trực tiếp bằng chip AI điện thoại...';
       });
 
-      double? detectedTotalAmount;
-      String detectedMerchant = 'Hóa đơn thanh toán';
-      DateTime detectedDate = DateTime.now();
-      String textForAi = '';
-
-      // TẦNG 1: Chạy mô hình OCR On-Device ngay trên chip điện thoại (Google ML Kit)
-      // Hoạt động 100% độc lập, không phụ thuộc máy tính hay server Python!
-      try {
-        final inputImage = InputImage.fromFilePath(pickedFile.path);
-        final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-        final RecognizedText recognizedText = await textRecognizer.processImage(inputImage);
-        await textRecognizer.close();
-
-        final lines = <String>[];
-        for (final block in recognizedText.blocks) {
-          for (final line in block.lines) {
-            final t = line.text.trim();
-            if (t.isNotEmpty) lines.add(t);
-          }
-        }
-
-        if (lines.isNotEmpty) {
-          // Bóc tách tên cửa hàng / thương hiệu (dòng đầu tiên có ý nghĩa)
-          const ignoreHeaders = [
-            'hóa đơn', 'hoa don', 'phiếu thanh toán', 'phieu thanh toan',
-            'phiếu tính tiền', 'phieu tinh tien', 'hóa đơn bán lẻ', 'receipt',
-            'invoice', 'bill', 'cảm ơn', 'cam on', 'thank you', 'welcome', 'xin chào'
-          ];
-          for (final line in lines.take(6)) {
-            final lower = line.toLowerCase();
-            if (ignoreHeaders.any((h) => lower.contains(h))) continue;
-            if (RegExp(r'^\d+$').hasMatch(line.replaceAll(RegExp(r'[\s\.\-\/\:]'), ''))) continue;
-            if (line.length >= 3) {
-              detectedMerchant = line;
-              break;
-            }
-          }
-
-          // Bóc tách ngày tháng
-          for (final line in lines) {
-            final dMatch = RegExp(r"\b(0?[1-9]|[12][0-9]|3[01])[/.\-](0?[1-9]|1[012])[/.\-](202\d)\b").firstMatch(line);
-            if (dMatch != null) {
-              try {
-                final d = int.parse(dMatch.group(1)!);
-                final m = int.parse(dMatch.group(2)!);
-                final y = int.parse(dMatch.group(3)!);
-                detectedDate = DateTime(y, m, d);
-                break;
-              } catch (_) {}
-            }
-          }
-
-          // Bóc tách Tổng tiền thanh toán
-          const totalKeywords = [
-            'tổng thanh toán', 'tong thanh toan', 'tổng cộng', 'tong cong',
-            'tổng tiền', 'tong tien', 'thanh toán', 'thanh toan', 'thành tiền',
-            'chuyển khoản', 'chuyen khoan', 'tiền mặt', 'tien mat', 'total', 'amount'
-          ];
-
-          List<double> candidateAmounts = [];
-          for (int i = 0; i < lines.length; i++) {
-            final lower = lines[i].toLowerCase();
-            final hasKw = totalKeywords.any((kw) => lower.contains(kw));
-            if (hasKw) {
-              final amt = _extractAmountFromReceiptLine(lines[i]);
-              if (amt != null && amt >= 1000) {
-                candidateAmounts.add(amt);
-              } else if (i + 1 < lines.length) {
-                final nextAmt = _extractAmountFromReceiptLine(lines[i + 1]);
-                if (nextAmt != null && nextAmt >= 1000) candidateAmounts.add(nextAmt);
-              }
-            }
-          }
-
-          if (candidateAmounts.isNotEmpty) {
-            detectedTotalAmount = candidateAmounts.reduce((a, b) => a > b ? a : b);
-          } else {
-            // Fallback tìm số tiền lớn nhất trên hóa đơn
-            List<double> allAmounts = [];
-            for (final line in lines) {
-              final amt = _extractAmountFromReceiptLine(line);
-              if (amt != null && amt >= 1000 && amt <= 200000000) {
-                allAmounts.add(amt);
-              }
-            }
-            if (allAmounts.isNotEmpty) {
-              detectedTotalAmount = allAmounts.reduce((a, b) => a > b ? a : b);
-            }
-          }
-
-          textForAi = '$detectedMerchant ${lines.take(8).join(" ")}';
-        }
-      } catch (e) {
-        debugPrint('[GoogleMLKit] Lỗi nhận diện On-Device: $e');
-      }
-
-      // TẦNG 2: Nếu On-Device tìm được số tiền -> Cập nhật ngay lập tức & Gọi PhoBERT AI phân loại!
-      if (detectedTotalAmount != null && detectedTotalAmount > 0) {
-        if (!mounted) return;
-        setState(() {
-          _isScanningBill = false;
-          _type = 'expense';
-          _amountController.text = detectedTotalAmount!.toInt().toString();
-          _noteController.text = detectedMerchant;
-          _selectedDate = detectedDate;
-          _selectedCategoryCode = 'AN_UONG'; // Mặc định hóa đơn là Ăn uống / Mua sắm
-          _aiFeedbackMessage = '⚡ Chip AI On-Device nhận diện: $detectedMerchant - ${NumberFormat('#,###', 'vi_VN').format(detectedTotalAmount)}đ';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFF10B981),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            content: Row(
-              children: [
-                const Icon(Icons.bolt, color: Colors.amberAccent),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Đã quét xong: $detectedMerchant (${NumberFormat('#,###', 'vi_VN').format(detectedTotalAmount)}đ)',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-
-        // Gọi thêm PhoBERT AI để tự động chọn đúng danh mục (Ăn uống hay Mua sắm)
-        if (textForAi.isNotEmpty) {
-          try {
-            final aiRes = await ApiService().classifyWithAi(textForAi);
-            if (aiRes != null && aiRes['category_code'] != null && mounted) {
-              final cat = aiRes['category_code'];
-              if (_categories.any((c) => c.code == cat)) {
-                setState(() => _selectedCategoryCode = cat);
-              }
-            }
-          } catch (_) {}
-        }
-        return;
-      }
-
-      // TẦNG 3: Fallback qua API Server nếu on-device chưa nhận được
       final bytes = await pickedFile.readAsBytes();
       final result = await ApiService().scanBill(
         imageBytes: bytes,
@@ -673,7 +527,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Color(0xFFEF4444),
-            content: Text('Không thể nhận diện hóa đơn. Vui lòng chụp rõ nét hoặc nhập tay!'),
+            content: Text('Không thể nhận diện hóa đơn. Vui lòng kiểm tra kết nối server hoặc nhập tay!'),
           ),
         );
       }
@@ -685,25 +539,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         });
       }
     }
-  }
-
-  // Hàm bóc tách số tiền từ dòng chữ hóa đơn On-Device
-  double? _extractAmountFromReceiptLine(String raw) {
-    if (raw.trim().isEmpty) return null;
-    final lower = raw.toLowerCase();
-    if (lower.contains('ngày') || lower.contains('date') || lower.contains('tel') || lower.contains('đt') || lower.contains('hotline') || lower.contains('mst')) {
-      return null;
-    }
-    final clean = raw.replaceAll(RegExp(r'(?<=\d)[oO]|(?<=[.,])[oO]|[oO](?=\d)|[oO](?=[.,])'), '0');
-    final formattedMatches = RegExp(r'(\d{1,3}(?:[.,]\d{3})+|\b\d{4,9}\b)').allMatches(clean);
-    if (formattedMatches.isNotEmpty) {
-      final lastMatch = formattedMatches.last.group(0)!;
-      final val = double.tryParse(lastMatch.replaceAll(RegExp(r'[^0-9]'), ''));
-      if (val != null && val >= 1000 && val <= 500000000) {
-        return val;
-      }
-    }
-    return null;
   }
 
   Future<void> _saveTransaction() async {

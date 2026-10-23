@@ -41,7 +41,6 @@ dependencies:
   shared_preferences: ^2.5.6
   image_picker: ^1.2.4
   notification_listener_service: ^1.0.0
-  google_mlkit_text_recognition: ^0.17.1
 
 dependency_overrides:
   shared_preferences_android: 2.4.2
