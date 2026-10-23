@@ -1,3 +1,13 @@
+---
+title: FinWise AI Service
+emoji: 💰
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # FinWise AI Service - Huấn Luyện AI Trên Máy Cục Bộ (Local Training)
 
 > 📖 **Lưu ý**: Tài liệu kiến trúc toàn diện của toàn bộ hệ thống ĐACN2 (Client Flutter + Backend Node.js + AI) được lưu tại [README.md gốc](../README.md).

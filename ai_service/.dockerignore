@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 .git/
 .gitignore
+dataset/
+reports/
+train_*.py
+generate_datasets.py
+download_datasets.py
+preprocess_data.py
