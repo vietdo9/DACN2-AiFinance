@@ -18,6 +18,7 @@ if sys.platform == "win32":
 import torch.nn as nn
 import numpy as np
 import easyocr
+import cv2
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -216,11 +217,41 @@ async def scan_bill(file: UploadFile = File(...)):
         if not image_bytes:
             raise HTTPException(status_code=400, detail="File ảnh rỗng!")
 
-        # 1. Nhận diện chữ bằng EasyOCR
-        ocr_results = ocr_reader.readtext(image_bytes)
-        
-        # 2. Bóc tách thông tin hóa đơn (Merchant, Total Amount, Date)
+        # 1. Chuyển đổi bytes thành ảnh OpenCV để hỗ trợ xử lý xoay chiều
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # 1.1 Quét ở góc ảnh ban đầu (0 độ)
+        ocr_results = ocr_reader.readtext(img if img is not None else image_bytes)
         parsed = parse_receipt_ocr_results(ocr_results)
+        
+        # 1.2 Cơ chế Tự Động Xoay (Smart Auto-Orientation):
+        # Nếu ảnh bị chụp dốc ngược (180 độ) hoặc xoay nghiêng (90/270 độ):
+        # Độ tin cậy OCR sẽ rất thấp (< 0.45) hoặc không tìm thấy tổng tiền.
+        # Hệ thống tự động thử xoay ảnh để tìm góc đọc chuẩn nhất!
+        avg_conf = sum(r[2] for r in ocr_results) / len(ocr_results) if ocr_results else 0.0
+        if img is not None and (avg_conf < 0.45 or parsed.get("total_amount", 0) == 0):
+            # Thử xoay 180 độ (trường hợp chụp ngược phổ biến nhất)
+            img_180 = cv2.rotate(img, cv2.ROTATE_180)
+            res_180 = ocr_reader.readtext(img_180)
+            conf_180 = sum(r[2] for r in res_180) / len(res_180) if res_180 else 0.0
+            parsed_180 = parse_receipt_ocr_results(res_180)
+
+            # Nếu xoay 180 độ tìm thấy tổng tiền hoặc độ tin cậy cao hơn hẳn
+            if (conf_180 > avg_conf + 0.15) or (parsed.get("total_amount", 0) == 0 and parsed_180.get("total_amount", 0) > 0):
+                ocr_results = res_180
+                parsed = parsed_180
+                avg_conf = conf_180
+            # Nếu vẫn chưa tìm thấy tiền, thử tiếp các góc xoay ngang (90 độ, 270 độ)
+            elif parsed.get("total_amount", 0) == 0:
+                for rot in [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE]:
+                    img_rot = cv2.rotate(img, rot)
+                    res_rot = ocr_reader.readtext(img_rot)
+                    parsed_rot = parse_receipt_ocr_results(res_rot)
+                    if parsed_rot.get("total_amount", 0) > 0:
+                        ocr_results = res_rot
+                        parsed = parsed_rot
+                        break
         
         # 3. Sử dụng PhoBERT kết hợp Bộ từ điển Song ngữ Anh - Việt để dự đoán danh mục
         cat_code = "MUA_SAM"
