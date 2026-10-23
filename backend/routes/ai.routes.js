@@ -11,6 +11,23 @@ router.get('/health', async (req, res) => {
     return res.json({ success: true, ai_service: health });
 });
 
+// 1.1 Kiểm tra danh sách mô hình Gemini khả dụng
+router.get('/gemini-models', async (req, res) => {
+    try {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) return res.json({ success: false, message: 'Chưa có GEMINI_API_KEY' });
+        const axios = require('axios');
+        const listRes = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, { timeout: 8000 });
+        const models = (listRes.data?.models || []).map(m => ({
+            name: m.name,
+            methods: m.supportedGenerationMethods
+        }));
+        return res.json({ success: true, count: models.length, models });
+    } catch (e) {
+        return res.status(500).json({ success: false, error: e.response?.data || e.message });
+    }
+});
+
 // 2. Phân loại giao dịch (PhoBERT)
 router.post('/classify', async (req, res) => {
     try {

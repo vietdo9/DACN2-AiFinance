@@ -1,7 +1,6 @@
 /**
  * Gemini Service - Cloud AI Fallback 24/7
- * Tự động kích hoạt khi AI Service cục bộ (PhoBERT/LSTM/EasyOCR) tắt máy
- * Cung cấp khả năng bóc tách hóa đơn, phân loại danh mục và dự báo chi tiêu hoàn toàn miễn phí.
+ * Tự động bóc tách hóa đơn và phân loại chi tiêu hoàn toàn miễn phí qua Google Gemini API.
  */
 
 const axios = require('axios');
@@ -19,24 +18,63 @@ const CATEGORIES_MAP = {
     'THU_NHAP': 'Thu nhập & Lương'
 };
 
+let cachedModel = null;
+
 class GeminiService {
     static getApiKey() {
         return process.env.GEMINI_API_KEY || '';
     }
 
     /**
-     * Bóc tách hóa đơn qua Gemini 1.5 Flash Vision
-     * @param {Buffer} fileBuffer 
-     * @param {string} mimetype 
+     * Tự động dò tìm Model khả dụng cho API Key từ Google AI Studio
+     */
+    static async getBestModel(apiKey) {
+        if (cachedModel) return cachedModel;
+        try {
+            const listRes = await axios.get(
+                `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+                { timeout: 4000 }
+            );
+            const models = listRes.data?.models || [];
+            const candidates = models.filter(m => m.supportedGenerationMethods?.includes('generateContent'));
+            
+            // Ưu tiên các model flash nhanh và nhẹ
+            const preferred = candidates.find(m => m.name.includes('flash') && !m.name.includes('thinking')) ||
+                              candidates.find(m => m.name.includes('gemini')) ||
+                              candidates[0];
+
+            if (preferred) {
+                cachedModel = preferred.name.replace('models/', '');
+                console.log('[*] Tự động kích hoạt mô hình Gemini:', cachedModel);
+                return cachedModel;
+            }
+        } catch (e) {
+            console.log('[!] Không thể gọi ListModels:', e.message);
+        }
+        return 'gemini-1.5-flash-latest';
+    }
+
+    /**
+     * Bóc tách hóa đơn qua Google Gemini Vision (Tự động fallback các model)
      */
     static async scanBill(fileBuffer, mimetype = 'image/jpeg') {
         const apiKey = this.getApiKey();
         if (!apiKey) {
-            throw new Error('Chưa cấu hình GEMINI_API_KEY trên server (vui lòng thêm vào Environment).');
+            throw new Error('Chưa cấu hình GEMINI_API_KEY trên server.');
         }
 
         const base64Data = fileBuffer.toString('base64');
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const best = await this.getBestModel(apiKey);
+        
+        // Danh sách model ưu tiên thử nghiệm
+        const candidateModels = [...new Set([
+            best,
+            'gemini-1.5-flash-latest',
+            'gemini-2.0-flash',
+            'gemini-1.5-flash-8b',
+            'gemini-1.5-pro',
+            'gemini-1.5-flash'
+        ])];
 
         const prompt = `
 Bạn là chuyên gia AI bóc tách hóa đơn tài chính cá nhân tiếng Việt.
@@ -53,60 +91,66 @@ Hãy phân tích ảnh hóa đơn/bill và trích xuất dữ liệu trả về 
 Chỉ trả về duy nhất chuỗi JSON hợp lệ.
 `;
 
-        try {
-            const response = await axios.post(
-                url,
-                {
-                    contents: [
-                        {
-                            parts: [
-                                { text: prompt },
-                                {
-                                    inline_data: {
-                                        mime_type: mimetype || 'image/jpeg',
-                                        data: base64Data
+        let lastError = null;
+
+        for (const modelName of candidateModels) {
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                const response = await axios.post(
+                    url,
+                    {
+                        contents: [
+                            {
+                                parts: [
+                                    { text: prompt },
+                                    {
+                                        inline_data: {
+                                            mime_type: mimetype || 'image/jpeg',
+                                            data: base64Data
+                                        }
                                     }
-                                }
-                            ]
+                                ]
+                            }
+                        ],
+                        generationConfig: {
+                            response_mime_type: "application/json",
+                            temperature: 0.1
                         }
-                    ],
-                    generationConfig: {
-                        response_mime_type: "application/json",
-                        temperature: 0.1
+                    },
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        timeout: 25000
                     }
-                },
-                {
-                    headers: { 'Content-Type': 'application/json' },
-                    timeout: 20000
-                }
-            );
+                );
 
-            const textOutput = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!textOutput) {
-                throw new Error('Gemini không phản hồi dữ liệu');
+                const textOutput = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!textOutput) continue;
+
+                cachedModel = modelName; // Ghi nhớ model hoạt động tốt
+                const parsed = JSON.parse(textOutput);
+                return {
+                    success: true,
+                    merchant: parsed.merchant || 'Hóa đơn mua sắm',
+                    total_amount: parseInt(parsed.total_amount, 10) || 0,
+                    date: parsed.date || new Date().toISOString().split('T')[0],
+                    category_code: parsed.category_code || 'MUA_SAM',
+                    category_name: CATEGORIES_MAP[parsed.category_code] || parsed.category_name || 'Mua sắm & Đồ dùng',
+                    confidence: parsed.confidence || 0.9,
+                    raw_text: parsed.raw_text || '',
+                    engine: `Cloud Gemini (${modelName}) 24/7`
+                };
+            } catch (error) {
+                lastError = error;
+                console.log(`[!] Model ${modelName} thất bại, thử model tiếp theo...`);
             }
-
-            const parsed = JSON.parse(textOutput);
-            return {
-                success: true,
-                merchant: parsed.merchant || 'Hóa đơn mua sắm',
-                total_amount: parseInt(parsed.total_amount, 10) || 0,
-                date: parsed.date || new Date().toISOString().split('T')[0],
-                category_code: parsed.category_code || 'MUA_SAM',
-                category_name: CATEGORIES_MAP[parsed.category_code] || parsed.category_name || 'Mua sắm & Đồ dùng',
-                confidence: parsed.confidence || 0.9,
-                raw_text: parsed.raw_text || '',
-                engine: 'Cloud Gemini 1.5 Flash (24/7 Fallback)'
-            };
-        } catch (error) {
-            console.error('[!] Lỗi Gemini scanBill:', error.response?.data || error.message);
-            throw new Error('Lỗi xử lý AI bóc tách hóa đơn: ' + (error.response?.data?.error?.message || error.message));
         }
+
+        console.error('[!] Tất cả các model Gemini đều thất bại:', lastError?.response?.data || lastError?.message);
+        throw new Error('Lỗi xử lý AI bóc tách hóa đơn: ' + (lastError?.response?.data?.error?.message || lastError?.message));
     }
 
     /**
-     * Phân loại giao dịch từ câu text tiếng Việt (Khi PhoBERT offline)
-     * @param {string} text 
+     * Phân loại giao dịch từ câu text tiếng Việt
      */
     static async classifyTransaction(text) {
         const apiKey = this.getApiKey();
@@ -114,7 +158,8 @@ Chỉ trả về duy nhất chuỗi JSON hợp lệ.
             return this.ruleBasedClassifier(text);
         }
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const modelName = await this.getBestModel(apiKey);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         const prompt = `
 Phân loại giao dịch chi tiêu/thu nhập sau vào một trong 10 danh mục:
 Mã danh mục hợp lệ: AN_UONG, DI_LAI, MUA_SAM, HOA_DON, NHA_O, GIAI_TRI, SUC_KHOE, HOC_TAP, TIET_KIEM_DAU_TU, THU_NHAP.
@@ -148,7 +193,7 @@ Trả về định dạng JSON:
                 category_code: parsed.category_code || 'MUA_SAM',
                 category_name: CATEGORIES_MAP[parsed.category_code] || parsed.category_name || 'Mua sắm & Đồ dùng',
                 confidence: parsed.confidence || 0.85,
-                engine: 'Cloud Gemini 1.5 Flash (24/7 Fallback)'
+                engine: `Cloud Gemini (${modelName}) 24/7`
             };
         } catch (err) {
             console.error('[!] Lỗi Gemini classify, chuyển sang Rule-based:', err.message);
@@ -157,7 +202,7 @@ Trả về định dạng JSON:
     }
 
     /**
-     * Phân loại dự phòng bằng tập quy tắc từ khóa (Nếu không có internet/API key)
+     * Phân loại dự phòng bằng tập quy tắc từ khóa
      */
     static ruleBasedClassifier(text) {
         const lower = text.toLowerCase();
@@ -195,7 +240,6 @@ Trả về định dạng JSON:
 
     /**
      * Dự báo chuỗi thời gian 7 ngày (Khi LSTM offline)
-     * Sử dụng mô hình thống kê Holt-Winters / Weighted Moving Average kết hợp độ biến động
      */
     static forecastExpenses(dailyExpenses) {
         if (!dailyExpenses || dailyExpenses.length === 0) {
@@ -207,11 +251,8 @@ Trả về định dạng JSON:
         const avgRecent = recent7.reduce((a, b) => a + b, 0) / 7;
         const avgAll = dailyExpenses.reduce((a, b) => a + b, 0) / n;
 
-        // Tính độ dốc xu hướng (Trend slope)
         const slope = (avgRecent - avgAll) / 14;
-
-        // Dự báo 7 ngày tiếp theo với độ biến thiên ngày trong tuần
-        const dayWeights = [0.95, 0.98, 1.02, 1.0, 1.15, 1.25, 1.1]; // Tăng nhẹ cuối tuần
+        const dayWeights = [0.95, 0.98, 1.02, 1.0, 1.15, 1.25, 1.1];
         const predicted = [];
 
         for (let i = 0; i < 7; i++) {
