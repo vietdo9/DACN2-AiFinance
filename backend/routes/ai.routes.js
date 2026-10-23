@@ -28,17 +28,18 @@ router.get('/gemini-models', async (req, res) => {
     }
 });
 
-// 1.2 Kiểm tra gọi thử Gemini 2.5 Flash
+// 1.2 Kiểm tra gọi thử Gemini 3.8 Flash
 router.get('/test-gemini-25', async (req, res) => {
     try {
         const apiKey = process.env.GEMINI_API_KEY;
         const axios = require('axios');
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const modelName = req.query.model || 'gemini-3.8-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         const response = await axios.post(url, {
-            contents: [{ parts: [{ text: "Hãy trả về duy nhất chuỗi JSON {\"status\": \"ok\", \"message\": \"Gemini 2.5 Flash hoạt động hoàn hảo\"}" }] }],
+            contents: [{ parts: [{ text: "Hãy trả về duy nhất chuỗi JSON {\"status\": \"ok\", \"message\": \"Gemini 3.8 Flash hoạt động hoàn hảo\"}" }] }],
             generationConfig: { response_mime_type: "application/json" }
         }, { timeout: 15000 });
-        return res.json({ success: true, response: response.data?.candidates?.[0]?.content?.parts?.[0]?.text });
+        return res.json({ success: true, model: modelName, response: response.data?.candidates?.[0]?.content?.parts?.[0]?.text });
     } catch (e) {
         return res.status(500).json({ success: false, error: e.response?.data || e.message });
     }

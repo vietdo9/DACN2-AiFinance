@@ -19,14 +19,15 @@ const CATEGORIES_MAP = {
 };
 
 const VALID_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-flash-latest',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-pro',
-    'gemini-pro-latest'
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-flash-latest'
 ];
 
-let cachedModel = 'gemini-2.5-flash';
+let cachedModel = 'gemini-3.8-flash';
 
 class GeminiService {
     static getApiKey() {
@@ -37,7 +38,7 @@ class GeminiService {
      * Tự động dò tìm Model khả dụng cho API Key từ Google AI Studio
      */
     static async getBestModel(apiKey) {
-        if (cachedModel && cachedModel !== 'gemini-1.5-flash-latest') return cachedModel;
+        if (cachedModel && cachedModel.includes('3.')) return cachedModel;
         try {
             const listRes = await axios.get(
                 `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
@@ -46,10 +47,11 @@ class GeminiService {
             const models = listRes.data?.models || [];
             const candidates = models.filter(m => m.supportedGenerationMethods?.includes('generateContent'));
             
-            // Ưu tiên các model flash nhanh và nhẹ
-            const preferred = candidates.find(m => m.name.includes('gemini-2.5-flash')) ||
+            // Ưu tiên các model flash 3.8 theo hướng dẫn chính thức từ Google
+            const preferred = candidates.find(m => m.name.includes('gemini-3.8-flash')) ||
+                              candidates.find(m => m.name.includes('gemini-3.7-flash')) ||
+                              candidates.find(m => m.name.includes('gemini-3.5-flash')) ||
                               candidates.find(m => m.name.includes('flash-latest')) ||
-                              candidates.find(m => m.name.includes('flash')) ||
                               candidates[0];
 
             if (preferred) {
@@ -58,9 +60,9 @@ class GeminiService {
                 return cachedModel;
             }
         } catch (e) {
-            console.log('[!] Không thể gọi ListModels, dùng mặc định gemini-2.5-flash:', e.message);
+            console.log('[!] Không thể gọi ListModels, dùng mặc định gemini-3.8-flash:', e.message);
         }
-        return 'gemini-2.5-flash';
+        return 'gemini-3.8-flash';
     }
 
     /**
