@@ -32,6 +32,7 @@ backend/data/*.json
 .packages
 build/
 *.iml
+*.apk
 .idea/
 .vscode/
 
