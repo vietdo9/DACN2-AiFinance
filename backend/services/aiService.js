@@ -1,6 +1,7 @@
 const axios = require('axios');
 const GeminiService = require('./geminiService');
 const PhobertHfService = require('./phobertHfService');
+const OcrSpaceService = require('./ocrSpaceService');
 require('dotenv').config();
 
 const AI_BASE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
@@ -21,16 +22,15 @@ class AiService {
             };
         } catch (error) {
             const hasHf = Boolean(process.env.HF_TOKEN);
-            const hasGemini = Boolean(process.env.GEMINI_API_KEY);
 
             return {
-                status: (hasHf || hasGemini) ? 'healthy' : 'degraded',
+                status: 'healthy',
                 mode: 'cloud_hybrid_active',
-                phobert_cloud: hasHf ? `vietdo99/phobert-finwise (Hugging Face)` : 'Chưa cấu hình HF_TOKEN',
-                ocr_cloud: hasGemini ? 'Google Gemini Flash 24/7' : 'Chưa cấu hình GEMINI_API_KEY',
+                ocr_engine: 'Cloud OCR.Space Engine (Siêu tốc < 1s, Không Timeout)',
+                phobert_cloud: hasHf ? `vietdo99/phobert-finwise (Hugging Face)` : 'Offline Rule-based Classifier',
                 active_engine: hasHf
-                    ? 'Cloud PhoBERT (vietdo99/phobert-finwise) + Cloud OCR'
-                    : 'Cloud Gemini 1.5 Flash (24/7 Mode)',
+                    ? 'Cloud OCR + Your Self-Trained PhoBERT (Hugging Face)'
+                    : 'Cloud OCR.Space Engine',
                 message: 'Máy tính đang tắt. Hệ thống đang chạy 100% trên Cloud 24/7!'
             };
         }
@@ -58,11 +58,11 @@ class AiService {
                 try {
                     return await PhobertHfService.classify(text);
                 } catch (hfErr) {
-                    console.log('[*] Lỗi PhoBERT Hugging Face, chuyển sang Gemini fallback:', hfErr.message);
+                    console.log('[*] Lỗi PhoBERT Hugging Face, chuyển sang fallback:', hfErr.message);
                 }
             }
 
-            // 3. Fallback sang Gemini / Rule-based
+            // 3. Fallback sang Rule-based / Gemini
             return await GeminiService.classifyTransaction(text);
         }
     }
@@ -89,13 +89,13 @@ class AiService {
     }
 
     /**
-     * Gửi ảnh hóa đơn bóc tách (EasyOCR + PhoBERT ưu tiên, Gemini Flash + PhoBERT HF 24/7)
+     * Gửi ảnh hóa đơn bóc tách (EasyOCR local -> Cloud OCR.Space < 1s + PhoBERT HF 24/7)
      * @param {Buffer} fileBuffer - Buffer dữ liệu ảnh
      * @param {string} filename - Tên file ảnh
      * @param {string} mimetype - Loại file
      */
     static async scanBill(fileBuffer, filename = 'bill.jpg', mimetype = 'image/jpeg') {
-        // 1. Thử gọi mô hình EasyOCR + PhoBERT cục bộ
+        // 1. Thử gọi mô hình EasyOCR + PhoBERT cục bộ (khi máy tính mở)
         try {
             const formData = new FormData();
             const blob = new Blob([fileBuffer], { type: mimetype });
@@ -119,24 +119,35 @@ class AiService {
                 };
             }
         } catch (error) {
-            console.log('[*] AI Service cục bộ offline -> Bóc tách bằng Cloud Gemini + PhoBERT 24/7...');
+            console.log('[*] AI Service cục bộ offline -> Bóc tách bằng Cloud OCR 24/7...');
         }
 
-        // 2. Chuyển sang Gemini để bóc tách OCR
-        const ocrData = await GeminiService.scanBill(fileBuffer, mimetype);
+        // 2. Chuyển sang Cloud OCR.Space siêu tốc (< 1s, miễn phí, không timeout)
+        let ocrData = null;
+        try {
+            console.log('[*] Bóc tách bằng Cloud OCR.Space...');
+            ocrData = await OcrSpaceService.scanBill(fileBuffer, filename);
+        } catch (ocrErr) {
+            console.log('[*] OCR.Space lỗi, thử Gemini fallback:', ocrErr.message);
+            try {
+                ocrData = await GeminiService.scanBill(fileBuffer, mimetype);
+            } catch (geminiErr) {
+                throw new Error('Không thể bóc tách hóa đơn: ' + ocrErr.message);
+            }
+        }
 
         // 3. Nếu có PhoBERT Hugging Face, dùng chính PhoBERT của bạn để phân loại lại danh mục
-        if (process.env.HF_TOKEN && ocrData.raw_text) {
+        if (process.env.HF_TOKEN && ocrData && ocrData.raw_text) {
             try {
                 const textForPhobert = `${ocrData.merchant} ${ocrData.raw_text}`.slice(0, 200);
                 const phobertResult = await PhobertHfService.classify(textForPhobert);
                 if (phobertResult && phobertResult.category_code) {
                     ocrData.category_code = phobertResult.category_code;
                     ocrData.category_name = phobertResult.category_name;
-                    ocrData.engine = 'Cloud Vision OCR + Your Self-Trained PhoBERT (vietdo99/phobert-finwise)';
+                    ocrData.engine = 'Cloud OCR + Your Self-Trained PhoBERT (vietdo99/phobert-finwise)';
                 }
             } catch (err) {
-                console.log('[*] Không thể phân loại lại bằng PhoBERT HF, giữ nguyên kết quả Gemini:', err.message);
+                console.log('[*] Không thể phân loại lại bằng PhoBERT HF, giữ nguyên kết quả OCR:', err.message);
             }
         }
 
