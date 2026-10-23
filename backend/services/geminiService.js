@@ -18,7 +18,15 @@ const CATEGORIES_MAP = {
     'THU_NHAP': 'Thu nhập & Lương'
 };
 
-let cachedModel = null;
+const VALID_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-pro',
+    'gemini-pro-latest'
+];
+
+let cachedModel = 'gemini-2.5-flash';
 
 class GeminiService {
     static getApiKey() {
@@ -29,18 +37,19 @@ class GeminiService {
      * Tự động dò tìm Model khả dụng cho API Key từ Google AI Studio
      */
     static async getBestModel(apiKey) {
-        if (cachedModel) return cachedModel;
+        if (cachedModel && cachedModel !== 'gemini-1.5-flash-latest') return cachedModel;
         try {
             const listRes = await axios.get(
                 `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-                { timeout: 4000 }
+                { timeout: 10000 }
             );
             const models = listRes.data?.models || [];
             const candidates = models.filter(m => m.supportedGenerationMethods?.includes('generateContent'));
             
             // Ưu tiên các model flash nhanh và nhẹ
-            const preferred = candidates.find(m => m.name.includes('flash') && !m.name.includes('thinking')) ||
-                              candidates.find(m => m.name.includes('gemini')) ||
+            const preferred = candidates.find(m => m.name.includes('gemini-2.5-flash')) ||
+                              candidates.find(m => m.name.includes('flash-latest')) ||
+                              candidates.find(m => m.name.includes('flash')) ||
                               candidates[0];
 
             if (preferred) {
@@ -49,13 +58,13 @@ class GeminiService {
                 return cachedModel;
             }
         } catch (e) {
-            console.log('[!] Không thể gọi ListModels:', e.message);
+            console.log('[!] Không thể gọi ListModels, dùng mặc định gemini-2.5-flash:', e.message);
         }
-        return 'gemini-1.5-flash-latest';
+        return 'gemini-2.5-flash';
     }
 
     /**
-     * Bóc tách hóa đơn qua Google Gemini Vision (Tự động fallback các model)
+     * Bóc tách hóa đơn qua Google Gemini Vision (Tự động fallback các model 2026)
      */
     static async scanBill(fileBuffer, mimetype = 'image/jpeg') {
         const apiKey = this.getApiKey();
@@ -66,15 +75,11 @@ class GeminiService {
         const base64Data = fileBuffer.toString('base64');
         const best = await this.getBestModel(apiKey);
         
-        // Danh sách model ưu tiên thử nghiệm
+        // Danh sách model ưu tiên theo chuẩn Google Gemini 2026
         const candidateModels = [...new Set([
             best,
-            'gemini-1.5-flash-latest',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash-8b',
-            'gemini-1.5-pro',
-            'gemini-1.5-flash'
-        ])];
+            ...VALID_MODELS
+        ])].filter(Boolean);
 
         const prompt = `
 Bạn là chuyên gia AI bóc tách hóa đơn tài chính cá nhân tiếng Việt.
@@ -141,7 +146,7 @@ Chỉ trả về duy nhất chuỗi JSON hợp lệ.
                 };
             } catch (error) {
                 lastError = error;
-                console.log(`[!] Model ${modelName} thất bại, thử model tiếp theo...`);
+                console.log(`[!] Model ${modelName} thất bại (${error.response?.data?.error?.message || error.message}), thử model tiếp theo...`);
             }
         }
 
@@ -158,8 +163,6 @@ Chỉ trả về duy nhất chuỗi JSON hợp lệ.
             return this.ruleBasedClassifier(text);
         }
 
-        const modelName = await this.getBestModel(apiKey);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         const prompt = `
 Phân loại giao dịch chi tiêu/thu nhập sau vào một trong 10 danh mục:
 Mã danh mục hợp lệ: AN_UONG, DI_LAI, MUA_SAM, HOA_DON, NHA_O, GIAI_TRI, SUC_KHOE, HOC_TAP, TIET_KIEM_DAU_TU, THU_NHAP.
@@ -174,31 +177,37 @@ Trả về định dạng JSON:
 }
 `;
 
-        try {
-            const response = await axios.post(
-                url,
-                {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        response_mime_type: "application/json",
-                        temperature: 0.1
-                    }
-                },
-                { headers: { 'Content-Type': 'application/json' }, timeout: 8000 }
-            );
+        for (const modelName of VALID_MODELS) {
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                const response = await axios.post(
+                    url,
+                    {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            response_mime_type: "application/json",
+                            temperature: 0.1
+                        }
+                    },
+                    { headers: { 'Content-Type': 'application/json' }, timeout: 8000 }
+                );
 
-            const textOutput = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            const parsed = JSON.parse(textOutput);
-            return {
-                category_code: parsed.category_code || 'MUA_SAM',
-                category_name: CATEGORIES_MAP[parsed.category_code] || parsed.category_name || 'Mua sắm & Đồ dùng',
-                confidence: parsed.confidence || 0.85,
-                engine: `Cloud Gemini (${modelName}) 24/7`
-            };
-        } catch (err) {
-            console.error('[!] Lỗi Gemini classify, chuyển sang Rule-based:', err.message);
-            return this.ruleBasedClassifier(text);
+                const textOutput = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!textOutput) continue;
+
+                const parsed = JSON.parse(textOutput);
+                return {
+                    category_code: parsed.category_code || 'MUA_SAM',
+                    category_name: CATEGORIES_MAP[parsed.category_code] || parsed.category_name || 'Mua sắm & Đồ dùng',
+                    confidence: parsed.confidence || 0.85,
+                    engine: `Cloud Gemini (${modelName}) 24/7`
+                };
+            } catch (err) {
+                // Thử model tiếp theo
+            }
         }
+
+        return this.ruleBasedClassifier(text);
     }
 
     /**
