@@ -119,6 +119,8 @@ class NotificationSyncService {
             lower.contains('momo') ||
             lower.contains('zalopay') ||
             lower.contains('vietcombank') ||
+            lower.contains('mbvcb') ||
+            lower.contains('vcb') ||
             lower.contains('mbbank') ||
             lower.contains('techcombank') ||
             lower.contains('vib') ||
@@ -170,6 +172,7 @@ class NotificationSyncService {
             lower.contains('bien dong tk') ||
             lower.contains('số dư:') ||
             lower.contains('so du:') ||
+            lower.contains('sd:') ||
             lower.contains('số dư cuối') ||
             lower.contains('so du cuoi') ||
             lower.contains('số dư khả dụng') ||
@@ -188,6 +191,11 @@ class NotificationSyncService {
             lower.contains('nap tien thanh cong') ||
             lower.contains('rút tiền thành công') ||
             lower.contains('rut tien thanh cong') ||
+            lower.contains('mbvcb') ||
+            lower.contains('ct tu') ||
+            lower.contains('ct từ') ||
+            lower.contains('cashin') ||
+            lower.contains('ecom.ew') ||
             (lower.contains('giao dịch thành công') && (lower.contains('mã') || lower.contains('ref') || lower.contains('ft') || lower.contains('tiền')));
 
         final hasSignedAmount = RegExp(r'([+-])\s*[0-9]{1,3}(?:[.,][0-9]{3})+\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false).hasMatch(combinedText);
@@ -221,30 +229,38 @@ class NotificationSyncService {
         }
 
         // 5. Tự động gọi PhoBERT AI phân loại danh mục nếu là KHOẢN CHI
-        // NGUYÊN TẮC: 2 mục lớn Thu Nhập và Chi Tiêu là ưu tiên cao nhất!
-        // Nếu là Thu Nhập -> Bắt buộc giữ nguyên danh mục THU_NHAP, tuyệt đối không gọi PhoBERT gán vào Ăn uống/Mua sắm!
+        // NGUYÊN TẮC:
+        // - Thu Nhập -> Bắt buộc giữ nguyên danh mục THU_NHAP
+        // - Đã nhận diện Sức khỏe & Y tế (SUC_KHOE: mua thuốc, bệnh viện, FPT Long Châu...) -> Bắt buộc giữ nguyên SUC_KHOE, không để AI hạ cấp sang Ăn uống/Mua sắm!
         String finalCategory = 'THU_NHAP';
         if (parsedTx['type'] == 'expense') {
           finalCategory = parsedTx['categoryCode'] ?? 'AN_UONG';
-          try {
-            final textForAi = (parsedTx['transferContent'] as String? ?? '').isNotEmpty
-                ? parsedTx['transferContent'] as String
-                : parsedTx['note'] as String;
-            final aiRes = await ApiService().classifyWithAi(textForAi);
-            if (aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
-              finalCategory = aiRes['category_code'];
-            }
-          } catch (_) {}
+          if (finalCategory != 'SUC_KHOE') {
+            try {
+              final textForAi = (parsedTx['transferContent'] as String? ?? '').isNotEmpty
+                  ? parsedTx['transferContent'] as String
+                  : parsedTx['note'] as String;
+              final aiRes = await ApiService().classifyWithAi(textForAi);
+              if (aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
+                finalCategory = aiRes['category_code'];
+              }
+            } catch (_) {}
+          }
         } else {
           finalCategory = 'THU_NHAP';
         }
 
-        // 6. Tự động lưu giao dịch vào FinWise qua API
+        // 6. Tự động lưu giao dịch vào FinWise qua API (kèm đúng ngày phát hiện)
+        final dateToSave = parsedTx['date'] is DateTime
+            ? DateFormat('yyyy-MM-dd').format(parsedTx['date'])
+            : DateFormat('yyyy-MM-dd').format(DateTime.now());
+
         final success = await ApiService().createTransaction(
           amount: parsedTx['amount'],
           note: parsedTx['note'],
           type: parsedTx['type'],
           categoryCode: finalCategory,
+          transactionDate: dateToSave,
         );
 
         if (success) {
@@ -269,51 +285,80 @@ class NotificationSyncService {
     _subscription = null;
   }
 
-  /// Thuật toán bóc tách thông báo ngân hàng / ShopeePay / MoMo
+  /// Thuật toán bóc tách thông báo ngân hàng / ZaloPay / ShopeePay / MoMo
   Map<String, dynamic>? _parseNotification(String text, String packageName) {
-    final lower = text.toLowerCase();
-
-    // Xác định tên nguồn
-    String source = 'Ngân hàng';
-    if (packageName.contains('shopee') || lower.contains('shopee') || lower.contains('airpay')) {
-      source = 'ShopeePay';
-    } else if (packageName.contains('momo') || lower.contains('momo')) {
-      source = 'Ví MoMo';
-    } else if (packageName.contains('zalopay') || lower.contains('zalopay')) {
-      source = 'ZaloPay';
-    } else if (packageName.contains('vcb') || lower.contains('vietcombank')) {
-      source = 'Vietcombank';
-    } else if (packageName.contains('mb') || lower.contains('mbbank')) {
-      source = 'MB Bank';
-    } else if (packageName.contains('techcombank')) {
-      source = 'Techcombank';
-    } else if (packageName.contains('vib') || lower.contains('vib') || lower.contains('myvib')) {
-      source = 'VIB (MyVIB)';
-    } else if (packageName.contains('vnpay') || lower.contains('vnpay') || lower.contains('vn pay')) {
-      source = 'Ví VNPAY';
+    final parsed = parseBankText(text, packageName: packageName);
+    if (parsed == null || (parsed['amount'] as double? ?? 0) < 1000) {
+      return null;
     }
 
-    // 1. Tách số tiền (Ưu tiên tìm số tiền đứng sau dấu + / - hoặc sau từ khóa biến động)
+    String fullNote = '${parsed['source']}: ${parsed['note']}';
+    if (fullNote.length > 80) {
+      fullNote = fullNote.substring(0, 80);
+    }
+    parsed['note'] = fullNote;
+    return parsed;
+  }
+
+  /// Hàm bóc tách giao dịch chuẩn hóa dùng chung cho cả Lắng nghe thông báo ngầm và Màn hình Nhập liệu
+  static Map<String, dynamic>? parseBankText(String rawText, {String? packageName}) {
+    if (rawText.trim().isEmpty) return null;
+
+    final lower = rawText.toLowerCase();
+
+    // 1. Xác định nguồn ngân hàng / ví điện tử (Ưu tiên đơn vị gửi thông báo)
+    String source = 'Ngân hàng';
+    final pkg = (packageName ?? '').toLowerCase();
+
+    if (pkg.contains('vcb') || lower.contains('vietcombank') || lower.contains('mbvcb') || lower.contains('vcb:')) {
+      source = 'Vietcombank';
+    } else if (pkg.contains('zalopay') || (lower.contains('zalopay') && !lower.contains('tai '))) {
+      source = 'ZaloPay';
+    } else if (pkg.contains('momo') || (lower.contains('momo') && !lower.contains('tai '))) {
+      source = 'Ví MoMo';
+    } else if (pkg.contains('shopee') || lower.contains('shopee') || lower.contains('airpay')) {
+      source = 'ShopeePay';
+    } else if (pkg.contains('mb') || lower.contains('mbbank')) {
+      source = 'MB Bank';
+    } else if (pkg.contains('techcombank')) {
+      source = 'Techcombank';
+    } else if (pkg.contains('vib') || lower.contains('myvib')) {
+      source = 'VIB (MyVIB)';
+    } else if (pkg.contains('vnpay')) {
+      source = 'Ví VNPAY';
+    } else if (pkg.contains('vpbank')) {
+      source = 'VPBank';
+    } else if (pkg.contains('agribank')) {
+      source = 'Agribank';
+    } else if (pkg.contains('bidv')) {
+      source = 'BIDV';
+    } else if (pkg.contains('acb')) {
+      source = 'ACB';
+    } else if (pkg.contains('vietinbank') || pkg.contains('icb')) {
+      source = 'VietinBank';
+    }
+
+    // 2. Bóc tách số tiền & loại trừ phần số dư cuối
+    String textWithoutBalance = rawText;
+    final balanceDelims = [
+      'số dư:', 'so du:', 'số dư cuối', 'số dư khả dụng', 'so du kha dung',
+      'balance:', 'khả dụng:', 'sd:'
+    ];
+    int cutIndex = -1;
+    for (final delim in balanceDelims) {
+      final idx = lower.indexOf(delim);
+      if (idx >= 0 && (cutIndex == -1 || idx < cutIndex)) {
+        cutIndex = idx;
+      }
+    }
+    if (cutIndex > 0) {
+      textWithoutBalance = rawText.substring(0, cutIndex);
+    }
+
     double detectedAmount = 0;
     String? detectedTypeFromSign;
 
-    // Loại bỏ phần số dư cuối (tránh nhận nhầm số dư tài khoản thành số tiền giao dịch)
-    String textWithoutBalance = text;
-    final balanceIndex = lower.indexOf('số dư:');
-    final balanceIndex2 = lower.indexOf('so du:');
-    final balanceIndex3 = lower.indexOf('số dư cuối');
-    final balanceIndex4 = lower.indexOf('số dư khả dụng');
-    final balanceIndex5 = lower.indexOf('so du kha dung');
-    final balanceIndex6 = lower.indexOf('balance:');
-    final balanceIndex7 = lower.indexOf('khả dụng:');
-    final cutIndex = [balanceIndex, balanceIndex2, balanceIndex3, balanceIndex4, balanceIndex5, balanceIndex6, balanceIndex7]
-        .where((i) => i >= 0)
-        .fold<int>(-1, (min, i) => min == -1 || i < min ? i : min);
-    if (cutIndex > 0) {
-      textWithoutBalance = text.substring(0, cutIndex);
-    }
-
-    // Regex 0: Bắt số tiền viết tắt dạng k/K chỉ khi có dấu + / - rõ ràng (ví dụ: +250k, -50k)
+    // k/K match (vd: +250k, -50k)
     final kMatch = RegExp(r'([+-])\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(textWithoutBalance);
     if (kMatch != null) {
       final signStr = kMatch.group(1);
@@ -326,10 +371,12 @@ class NotificationSyncService {
       }
     }
 
-    // Regex 1: Số tiền có dấu + hoặc - rõ ràng (ví dụ: +250,000VND, -45.000đ)
+    // Signed full amount: +250,000VND, -45.000đ
     if (detectedAmount == 0) {
-      final signedMatch = RegExp(r'([+-])\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
-          .firstMatch(textWithoutBalance);
+      final signedMatch = RegExp(
+        r'([+-])\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b',
+        caseSensitive: false,
+      ).firstMatch(textWithoutBalance);
       if (signedMatch != null) {
         final signStr = signedMatch.group(1);
         final rawNum = signedMatch.group(2)!.replaceAll(RegExp(r'[^0-9]'), '');
@@ -339,37 +386,35 @@ class NotificationSyncService {
       }
     }
 
-    // Regex 2: Số tiền sau các từ khóa ngân hàng "thanh toán", "cộng", "trừ", "số tiền"
+    // Keyword amount: thanh toán 50.000, cộng 100,000, số tiền 20.000...
     if (detectedAmount == 0) {
-      final keywordMatch = RegExp(r'(?:thanh toán|chuyển tiền|chuyển khoản|nhận tiền từ|cộng tiền|trừ tiền|số tiền|so tien)[:\s]+(?:thành công\s+)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
-          .firstMatch(textWithoutBalance);
+      final keywordMatch = RegExp(
+        r'(?:thanh toán|chuyển tiền|chuyển khoản|nhận tiền từ|cộng tiền|trừ tiền|số tiền|so tien|ghi nợ|ghi có)[:\s]+(?:thành công\s+)?([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b',
+        caseSensitive: false,
+      ).firstMatch(textWithoutBalance);
       if (keywordMatch != null) {
         final rawNum = keywordMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
         detectedAmount = double.tryParse(rawNum) ?? 0;
       }
     }
 
-    // Regex 3: Tìm bất kỳ số tiền nào có định dạng tiền tệ (từ 1.000đ trở lên)
+    // Currency format amount
     if (detectedAmount == 0) {
-      final anyMatch = RegExp(r'\b([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)\b', caseSensitive: false)
-          .firstMatch(textWithoutBalance);
+      final anyMatch = RegExp(
+        r'\b([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)\b',
+        caseSensitive: false,
+      ).firstMatch(textWithoutBalance);
       if (anyMatch != null) {
         final rawNum = anyMatch.group(1)!.replaceAll(RegExp(r'[^0-9]'), '');
         detectedAmount = double.tryParse(rawNum) ?? 0;
       }
     }
 
-    if (detectedAmount < 1000) {
-      return null; // Không trích xuất được số tiền hợp lệ
-    }
-
-    // 2. Phân loại 2 Mục Lớn: Thu Nhập vs Chi Tiêu (Ưu tiên tuyệt đối)
+    // 3. Phân loại 2 Mục Lớn: Thu Nhập vs Chi Tiêu (Ưu tiên tuyệt đối)
     String type = 'expense';
     if (detectedTypeFromSign != null) {
       type = detectedTypeFromSign;
     } else {
-      // Chỉ nhận diện là Thu Nhập khi có từ khóa biến động cộng tiền ngân hàng cụ thể
-      // TUYỆT ĐỐI không dùng 'tang' (trùng 'tặng') hay 'nhan' (trùng 'nhận voucher/quà')
       final hasIncomeKeywords = lower.contains('+') ||
           lower.contains('cong tien') || lower.contains('cộng tiền') ||
           lower.contains('duoc cong') || lower.contains('được cộng') ||
@@ -379,7 +424,9 @@ class NotificationSyncService {
           lower.contains('tien ve') || lower.contains('tiền về') ||
           lower.contains('chuyen den tai khoan') || lower.contains('chuyển đến tài khoản') ||
           lower.contains('hoan tien') || lower.contains('hoàn tiền') || lower.contains('refund') ||
-          lower.contains('credit') || lower.contains('cr:');
+          lower.contains('credit') || lower.contains('cr:') ||
+          lower.contains('ghi có') || lower.contains('ghi co') ||
+          lower.contains('interest payment') || lower.contains('tien lai') || lower.contains('tiền lãi');
 
       final hasExpenseKeywords = lower.contains('-') ||
           lower.contains('tru') || lower.contains('trừ') ||
@@ -387,12 +434,13 @@ class NotificationSyncService {
           lower.contains('thanh toan') || lower.contains('thanh toán') ||
           lower.contains('rut tien') || lower.contains('rút tiền') ||
           lower.contains('chuyen di') || lower.contains('chuyển đi') ||
-          lower.contains('debit') || lower.contains('dr:');
+          lower.contains('debit') || lower.contains('dr:') ||
+          lower.contains('ghi nợ') || lower.contains('ghi no');
 
       if (hasIncomeKeywords && !hasExpenseKeywords) {
         type = 'income';
       } else if (hasIncomeKeywords && hasExpenseKeywords) {
-        if (lower.contains('cộng tiền') || lower.contains('cong tien') || lower.contains('nhận tiền từ') || lower.contains('nhan tien tu')) {
+        if (lower.contains('cộng tiền') || lower.contains('cong tien') || lower.contains('nhận tiền từ') || lower.contains('nhan tien tu') || lower.contains('ghi có')) {
           type = 'income';
         } else {
           type = 'expense';
@@ -402,79 +450,397 @@ class NotificationSyncService {
       }
     }
 
-    // 3. Trích xuất người nhận/gửi và nội dung chuyển tiền
+    // 4. Trích xuất Ngày và Giờ giao dịch
+    DateTime? detectedDate;
+    final dateMatch = RegExp(r'\b(0?[1-9]|[12][0-9]|3[01])[\/\-\.](0?[1-9]|1[012])[\/\-\.](202\d|\d{2})\b').firstMatch(rawText);
+    if (dateMatch != null) {
+      try {
+        final d = int.parse(dateMatch.group(1)!);
+        final m = int.parse(dateMatch.group(2)!);
+        var y = int.parse(dateMatch.group(3)!);
+        if (y < 100) y += 2000;
+        detectedDate = DateTime(y, m, d);
+      } catch (_) {}
+    }
+
+    int? detectedHour;
+    final timeMatch = RegExp(r'\b([0-1]?[0-9]|2[0-3])[:h]([0-5][0-9])\b').firstMatch(rawText);
+    if (timeMatch != null) {
+      detectedHour = int.tryParse(timeMatch.group(1)!);
+    }
+
+    // 5. Bóc tách Đối tác (Người nhận / gửi), Nội dung chuyển tiền & Danh mục
     String counterparty = '';
+    String sender = '';
+    String transferContent = '';
+    String suggestedCategory = type == 'income' ? 'THU_NHAP' : 'AN_UONG';
+
+    // MẪU ĐẶC BIỆT 1: ZALOPAY ECOM CASHIN / THANH TOÁN
+    if (lower.contains('zalopay') && (lower.contains('ecom') || lower.contains('cashin') || lower.contains('ew'))) {
+      counterparty = 'Ví ZaloPay';
+      final phoneMatch = RegExp(r'\b(0\d{9})\b').firstMatch(rawText);
+      final phone = phoneMatch?.group(1);
+      final phoneSuffix = phone != null ? ' ($phone)' : '';
+
+      if (lower.contains('cashin') || lower.contains('nạp')) {
+        transferContent = 'Nạp ví ZaloPay';
+        suggestedCategory = 'TIET_KIEM_DAU_TU';
+        return {
+          'amount': detectedAmount,
+          'type': 'expense',
+          'sender': '',
+          'counterparty': 'Ví ZaloPay',
+          'transferContent': transferContent,
+          'note': 'Nạp tiền ví ZaloPay$phoneSuffix',
+          'categoryCode': suggestedCategory,
+          'source': source == 'Ngân hàng' ? 'Vietcombank' : source,
+          'date': detectedDate,
+          'hour': detectedHour,
+        };
+      } else {
+        transferContent = 'Thanh toán ZaloPay';
+        suggestedCategory = 'MUA_SAM';
+        return {
+          'amount': detectedAmount,
+          'type': 'expense',
+          'sender': '',
+          'counterparty': 'Ví ZaloPay',
+          'transferContent': transferContent,
+          'note': 'Thanh toán qua ZaloPay',
+          'categoryCode': suggestedCategory,
+          'source': source == 'Ngân hàng' ? 'Vietcombank' : source,
+          'date': detectedDate,
+          'hour': detectedHour,
+        };
+      }
+    }
+
+    // MẪU ĐẶC BIỆT 2: VIETCOMBANK CT TU ... TOI ... [TAI ...]
+    final ctMatch = RegExp(
+      r'\bCT\s+(?:tu|từ)\s+(.+?)\s+(?:toi|tới|đến|den)\s+(.+?)(?:\s+(?:tai|tại)\s+([A-Za-z0-9_\s]+))?$',
+      caseSensitive: false,
+    ).firstMatch(rawText);
+
+    if (ctMatch != null) {
+      final senderPart = ctMatch.group(1)!.trim();
+      final receiverPart = ctMatch.group(2)!.trim();
+
+      sender = senderPart.replaceAll(RegExp(r'^\d{8,20}\s+'), '').trim();
+
+      var beforeCt = rawText.substring(0, ctMatch.start).trim();
+      final refIdx = beforeCt.toLowerCase().lastIndexOf(RegExp(r'\b(?:ref|nd|nội dung|noi dung)[:\s]+'));
+      if (refIdx >= 0) {
+        beforeCt = beforeCt.substring(refIdx).replaceFirst(RegExp(r'^(?:ref|nd|nội dung|noi dung)[:\s]+', caseSensitive: false), '').trim();
+      }
+
+      final dotParts = beforeCt.split('.').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      for (final part in dotParts.reversed) {
+        final p = part.replaceAll(RegExp(r'^(?:ref|nd)[:\s]+', caseSensitive: false), '').trim();
+        final pLow = p.toLowerCase();
+        final isSystemCode = p.isEmpty ||
+            RegExp(r'^MBVCB', caseSensitive: false).hasMatch(p) ||
+            RegExp(r'^\d+$').hasMatch(p) ||
+            RegExp(r'^[A-Z0-9]{8,}$').hasMatch(p) ||
+            (RegExp(r'^(?=.*[0-9])(?=.*[A-Za-z])[A-Za-z0-9]{4,10}$').hasMatch(p) && !p.contains(' ')) ||
+            pLow.contains('sd:') || pLow.contains('số dư') || pLow.contains('so du') ||
+            pLow.contains('vnd') || pLow.startsWith('tk ') ||
+            pLow.endsWith('chuyen tien') || pLow.endsWith('chuyển tiền');
+
+        if (p.length >= 3 && !isSystemCode) {
+          transferContent = p;
+          break;
+        }
+      }
+
+      String cleanReceiver = receiverPart;
+      cleanReceiver = cleanReceiver.replaceAll(RegExp(r'#[A-Za-z0-9_]+#[A-Za-z0-9_]+#'), '');
+      cleanReceiver = cleanReceiver.replaceAll(RegExp(r'#[A-Za-z0-9_]+#'), '');
+      cleanReceiver = cleanReceiver.replaceAll(
+        RegExp(r'^(?:PMC\d+|VQR\w+|MBBHX\w+|ZLP\d+|99MM\w+|AGBMBF\w+|AGB\w+|\d{8,20})\s*', caseSensitive: false),
+        '',
+      );
+      cleanReceiver = cleanReceiver.replaceAll('#', ' ').trim();
+
+      if (cleanReceiver.toUpperCase().startsWith('MOMO_')) {
+        cleanReceiver = cleanReceiver.substring(5).trim();
+      } else if (cleanReceiver.toUpperCase().startsWith('MOMO ')) {
+        cleanReceiver = cleanReceiver.substring(5).trim();
+      }
+
+      if (cleanReceiver.contains('_')) {
+        cleanReceiver = cleanReceiver.split('_').first.trim();
+      }
+
+      final upperR = cleanReceiver.toUpperCase();
+      if (upperR.contains('LONG CHAU') || upperR.contains('LONG CHÂU') || upperR.contains('FPT PHARMA') || upperR.contains('FPT LONG CHAU')) {
+        cleanReceiver = 'Nhà thuốc FPT Long Châu';
+        suggestedCategory = 'SUC_KHOE';
+      } else if (upperR.contains('PHARMACITY')) {
+        cleanReceiver = 'Pharmacity';
+        suggestedCategory = 'SUC_KHOE';
+      } else if (upperR.contains('AN KHANG') && (upperR.contains('THUOC') || upperR.contains('THUỐC') || upperR.contains('DUOC') || upperR.contains('DƯỢC') || upperR.contains('NHA THUOC') || upperR.contains('PHARMA') || upperR.contains('MWG'))) {
+        cleanReceiver = 'Nhà thuốc An Khang';
+        suggestedCategory = 'SUC_KHOE';
+      } else if (upperR.contains('BENH VIEN') || upperR.contains('BỆNH VIỆN') || upperR.startsWith('BV ') || upperR.startsWith('BV_')) {
+        suggestedCategory = 'SUC_KHOE';
+        if (upperR.startsWith('BV ') || upperR.startsWith('BV_')) {
+          cleanReceiver = 'Bệnh viện ${cleanReceiver.substring(3).trim()}';
+        }
+      } else if (upperR.contains('PHONG KHAM') || upperR.contains('PHÒNG KHÁM') || upperR.contains('NHA KHOA') || upperR.contains('TRUNG TAM Y TE') || upperR.contains('TRUNG TÂM Y TẾ')) {
+        suggestedCategory = 'SUC_KHOE';
+      } else if (upperR.contains('NHA THUOC') || upperR.contains('NHÀ THUỐC') || upperR.contains('TIEM THUOC') || upperR.contains('TIỆM THUỐC') || upperR.contains('QUAY THUOC') || upperR.contains('PHARMACY') || upperR.contains('DUOC PHAM') || upperR.contains('DƯỢC PHẨM')) {
+        suggestedCategory = 'SUC_KHOE';
+      } else if (upperR.contains('BACH HOA XANH')) {
+        cleanReceiver = 'Bách Hóa Xanh';
+        suggestedCategory = 'MUA_SAM';
+      } else if (upperR.contains('ZION')) {
+        cleanReceiver = 'ZaloPay (Zion)';
+        suggestedCategory = 'HOA_DON';
+      } else if (upperR.contains('MINI MART') || upperR.contains('MART') || upperR.contains('MARKET') || upperR.contains('SIEU THI')) {
+        suggestedCategory = 'MUA_SAM';
+      } else if (upperR.contains('BAKERY') || upperR.contains('COFFEE') || upperR.contains('TEA') || upperR.contains('CAFE') || upperR.contains('FOOD')) {
+        suggestedCategory = 'AN_UONG';
+      }
+
+      counterparty = cleanReceiver;
+
+      final lowerContent = transferContent.toLowerCase();
+      final isMedicalContent = lowerContent.contains('thuốc') || lowerContent.contains('thuoc') ||
+          lowerContent.contains('khám') || lowerContent.contains('kham') ||
+          lowerContent.contains('bệnh viện') || lowerContent.contains('benh vien') ||
+          lowerContent.contains('viện phí') || lowerContent.contains('vien phi') ||
+          lowerContent.contains('nha khoa') || lowerContent.contains('bác sĩ') || lowerContent.contains('bac si') ||
+          lowerContent.contains('phòng khám') || lowerContent.contains('phong kham') ||
+          lowerContent.contains('xét nghiệm') || lowerContent.contains('xet nghiem') ||
+          lowerContent.contains('tiêm') || lowerContent.contains('tiem') ||
+          lowerContent.contains('chích ngừa') || lowerContent.contains('chich ngua') ||
+          lowerContent.contains('vắc xin') || lowerContent.contains('vac xin') ||
+          lowerContent.contains('răng') || lowerContent.contains('rang') ||
+          lowerContent.contains('y tế') || lowerContent.contains('y te') ||
+          lowerContent.contains('dược phẩm') || lowerContent.contains('duoc pham') ||
+          lowerContent.contains('sức khỏe') || lowerContent.contains('suc khoe') ||
+          lowerContent.contains('fpt pharma') || lowerContent.contains('long châu') || lowerContent.contains('long chau') ||
+          lowerContent.contains('pharmacity') || lowerContent.contains('an khang');
+
+      if (isMedicalContent) {
+        suggestedCategory = 'SUC_KHOE';
+      } else if (lowerContent.contains('cơm') || lowerContent.contains('com') ||
+          lowerContent.contains('xôi') || lowerContent.contains('xoi') ||
+          lowerContent.contains('bánh') || lowerContent.contains('banh') ||
+          lowerContent.contains('redbull') || lowerContent.contains('cafe') ||
+          lowerContent.contains('trà') || lowerContent.contains('tra')) {
+        suggestedCategory = 'AN_UONG';
+      }
+
+      String note = '';
+      if (transferContent.isNotEmpty) {
+        if (counterparty.isNotEmpty && !transferContent.toLowerCase().contains(counterparty.toLowerCase())) {
+          note = '$transferContent (Đến: $counterparty)';
+        } else {
+          note = transferContent;
+        }
+      } else {
+        final lowCp = counterparty.toLowerCase();
+        final isPharmacy = lowCp.contains('thuốc') || lowCp.contains('thuoc') ||
+            lowCp.contains('pharma') || lowCp.contains('long châu') || lowCp.contains('long chau') ||
+            lowCp.contains('pharmacity') || lowCp.contains('an khang') || lowCp.contains('dược');
+        final isDental = lowCp.contains('nha khoa') || lowCp.contains('răng');
+        final isHospital = lowCp.contains('bệnh viện') || lowCp.contains('benh vien') ||
+            lowCp.contains('phòng khám') || lowCp.contains('phong kham') ||
+            lowCp.contains('y tế') || lowCp.contains('clinic') || lowCp.contains('hospital');
+        final isStore = [
+          'bách hóa xanh', 'mart', 'bakery', 'coffee', 'tea', 'cafe', 'zalopay'
+        ].any((w) => lowCp.contains(w));
+
+        if (isPharmacy) {
+          note = 'Mua thuốc $counterparty';
+        } else if (isDental) {
+          note = 'Khám răng $counterparty';
+        } else if (isHospital) {
+          note = 'Khám chữa bệnh $counterparty';
+        } else if (isStore) {
+          note = 'Mua hàng $counterparty';
+        } else {
+          note = 'Chuyển cho $counterparty';
+        }
+      }
+
+      return {
+        'amount': detectedAmount,
+        'type': 'expense',
+        'sender': sender,
+        'counterparty': counterparty,
+        'transferContent': transferContent,
+        'note': note,
+        'categoryCode': suggestedCategory,
+        'source': 'Vietcombank',
+        'date': detectedDate,
+        'hour': detectedHour,
+      };
+    }
+
+    // MẪU ĐẶC BIỆT 3: NHẬN TIỀN VCB `... chuyen tien#SP#...`
+    if (lower.contains('chuyen tien#sp#') || lower.contains('chuyển tiền#sp#')) {
+      final senderMatch = RegExp(r'^(.+?)\s+(?:chuyen tien|chuyển tiền)#SP#', caseSensitive: false).firstMatch(rawText);
+      sender = senderMatch != null ? senderMatch.group(1)!.trim() : '';
+      counterparty = sender;
+      return {
+        'amount': detectedAmount,
+        'type': 'income',
+        'sender': sender,
+        'counterparty': counterparty,
+        'transferContent': 'Nhận tiền chuyển khoản',
+        'note': sender.isNotEmpty ? 'Nhận tiền từ $sender' : 'Nhận tiền chuyển khoản',
+        'categoryCode': 'THU_NHAP',
+        'source': 'Vietcombank',
+        'date': detectedDate,
+        'hour': detectedHour,
+      };
+    }
+
+    // MẪU ĐẶC BIỆT 4: TIỀN LÃI TÀI KHOẢN (INTEREST PAYMENT)
+    if (lower.contains('interest payment') || lower.contains('tiền lãi')) {
+      return {
+        'amount': detectedAmount,
+        'type': 'income',
+        'sender': 'Vietcombank',
+        'counterparty': 'Vietcombank',
+        'transferContent': 'Tiền lãi tài khoản',
+        'note': 'Tiền lãi tài khoản Vietcombank',
+        'categoryCode': 'THU_NHAP',
+        'source': 'Vietcombank',
+        'date': detectedDate,
+        'hour': detectedHour,
+      };
+    }
+
+    // MẪU 5: THÔNG BÁO / SMS NGÂN HÀNG TIÊU CHUẨN (MB, TECHCOM, VPBANK, ACB, MOMO...)
     final partyRegex = RegExp(
-      r'(?:đến|den|tới|toi|gửi đến|gui den|chuyển đến|chuyen den|cho|từ|tu|người nhận|nguoi nhan|người gửi|nguoi gui)[:\s]+([A-Za-z0-9\sÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴÝỶỸ]{3,35})(?=[.,\n|]|\s+(?:lúc|luc|ngày|ngay|vào|vao|nội dung|noi dung|nd|ref|số dư|so du)|$)',
+      r'(?:đến|den|tới|toi|gửi đến|gui den|chuyển đến|chuyen den|cho|từ|tu|người nhận|nguoi nhan|người gửi|nguoi gui)[:\s]+([^.,\n|]{3,50})(?=[.,\n|]|\s+(?:lúc|luc|ngày|ngay|vào|vao|nội dung|noi dung|nd|ref|số dư|so du)|$)',
       caseSensitive: false,
     );
-    final partyMatch = partyRegex.firstMatch(text);
+    final partyMatch = partyRegex.firstMatch(rawText);
     if (partyMatch != null) {
-      final rawParty = partyMatch.group(1)!.trim();
+      String rawParty = partyMatch.group(1)!.trim();
+      rawParty = rawParty.replaceAll(RegExp(r'^(?:PMC\d+|VQR\w+|MBBHX\w+|ZLP\d+|99MM\w+|AGB\w+|\d{8,20})\s*', caseSensitive: false), '');
+      rawParty = rawParty.replaceAll(RegExp(r'#[^#]+#'), '').trim();
       if (!RegExp(r'^(vnd|vnđ|d|đ|tk|tài khoản|so du|số dư|thành công|thanh cong)\b', caseSensitive: false).hasMatch(rawParty)) {
+        if (rawParty.toUpperCase().startsWith('MOMO_')) rawParty = rawParty.substring(5).trim();
+        if (rawParty.contains('_')) rawParty = rawParty.split('_').first.trim();
+        final upperP = rawParty.toUpperCase();
+        if (upperP.contains('LONG CHAU') || upperP.contains('LONG CHÂU') || upperP.contains('FPT PHARMA') || upperP.contains('FPT LONG CHAU')) {
+          rawParty = 'Nhà thuốc FPT Long Châu';
+          suggestedCategory = 'SUC_KHOE';
+        } else if (upperP.contains('PHARMACITY')) {
+          rawParty = 'Pharmacity';
+          suggestedCategory = 'SUC_KHOE';
+        } else if (upperP.contains('AN KHANG') && (upperP.contains('THUOC') || upperP.contains('THUỐC') || upperP.contains('DUOC') || upperP.contains('DƯỢC') || upperP.contains('NHA THUOC') || upperP.contains('PHARMA') || upperP.contains('MWG'))) {
+          rawParty = 'Nhà thuốc An Khang';
+          suggestedCategory = 'SUC_KHOE';
+        } else if (upperP.contains('BENH VIEN') || upperP.contains('BỆNH VIỆN') || upperP.startsWith('BV ') || upperP.startsWith('BV_')) {
+          suggestedCategory = 'SUC_KHOE';
+          if (upperP.startsWith('BV ') || upperP.startsWith('BV_')) {
+            rawParty = 'Bệnh viện ${rawParty.substring(3).trim()}';
+          }
+        } else if (upperP.contains('PHONG KHAM') || upperP.contains('PHÒNG KHÁM') || upperP.contains('NHA KHOA') || upperP.contains('TRUNG TAM Y TE') || upperP.contains('TRUNG TÂM Y TẾ')) {
+          suggestedCategory = 'SUC_KHOE';
+        } else if (upperP.contains('NHA THUOC') || upperP.contains('NHÀ THUỐC') || upperP.contains('TIEM THUOC') || upperP.contains('TIỆM THUỐC') || upperP.contains('QUAY THUOC') || upperP.contains('PHARMACY') || upperP.contains('DUOC PHAM')) {
+          suggestedCategory = 'SUC_KHOE';
+        } else if (upperP.contains('BACH HOA XANH')) {
+          rawParty = 'Bách Hóa Xanh';
+          suggestedCategory = 'MUA_SAM';
+        }
         counterparty = rawParty;
       }
     }
 
-    // 4. Tìm nội dung chuyển tiền (Phải có \b để không bị ăn nhầm 'ND' trong 'VND')
-    String transferContent = '';
-    final contentRegex = RegExp(
+    final ndMatch = RegExp(
       r'(?:\bnd\b|\bnoi dung\b|\bnội dung\b|\blời nhắn\b|\bloi nhan\b|\bref\b|\blý do\b|\bly do\b)[:\s]+([^.\n|]+)',
       caseSensitive: false,
-    );
-    final contentMatch = contentRegex.firstMatch(text);
-    if (contentMatch != null) {
-      transferContent = contentMatch.group(1)!.trim();
+    ).firstMatch(rawText);
+    if (ndMatch != null) {
+      transferContent = ndMatch.group(1)!.trim();
       final dotParts = transferContent.split('.');
       if (dotParts.length > 1 && dotParts.last.trim().length >= 3) {
         transferContent = dotParts.last.trim();
       }
-    }
-
-    if (transferContent.isEmpty) {
-      final taiRegex = RegExp(r'\b(?:tại|tai)\s+([^.\n|]+)', caseSensitive: false);
-      final taiMatch = taiRegex.firstMatch(text);
+    } else {
+      final taiMatch = RegExp(r'\b(?:tại|tai)\s+([^.\n|]+)', caseSensitive: false).firstMatch(rawText);
       if (taiMatch != null) {
         transferContent = 'Tại ${taiMatch.group(1)!.trim()}';
       }
     }
 
-    // 5. Kết hợp thành ghi chú hoàn chỉnh và ý nghĩa
-    String meaningfulText = '';
+    String note = '';
     if (transferContent.isNotEmpty && counterparty.isNotEmpty) {
       if (transferContent.toLowerCase().contains(counterparty.toLowerCase())) {
-        meaningfulText = transferContent;
+        note = transferContent;
       } else {
-        meaningfulText = type == 'income'
-            ? '$transferContent (Từ: $counterparty)'
-            : '$transferContent (Đến: $counterparty)';
+        note = type == 'income' ? '$transferContent (Từ: $counterparty)' : '$transferContent (Đến: $counterparty)';
       }
     } else if (transferContent.isNotEmpty) {
-      meaningfulText = transferContent;
+      note = transferContent;
     } else if (counterparty.isNotEmpty) {
-      meaningfulText = type == 'income'
-          ? 'Nhận từ $counterparty'
-          : 'Chuyển cho $counterparty';
+      final lowCp = counterparty.toLowerCase();
+      final isPharmacy = lowCp.contains('thuốc') || lowCp.contains('thuoc') ||
+          lowCp.contains('pharma') || lowCp.contains('long châu') || lowCp.contains('long chau') ||
+          lowCp.contains('pharmacity') || lowCp.contains('an khang') || lowCp.contains('dược');
+      final isDental = lowCp.contains('nha khoa') || lowCp.contains('răng');
+      final isHospital = lowCp.contains('bệnh viện') || lowCp.contains('benh vien') ||
+          lowCp.contains('phòng khám') || lowCp.contains('phong kham') ||
+          lowCp.contains('y tế') || lowCp.contains('clinic') || lowCp.contains('hospital');
+      if (isPharmacy && type == 'expense') {
+        note = 'Mua thuốc $counterparty';
+      } else if (isDental && type == 'expense') {
+        note = 'Khám răng $counterparty';
+      } else if (isHospital && type == 'expense') {
+        note = 'Khám chữa bệnh $counterparty';
+      } else {
+        note = type == 'income' ? 'Nhận từ $counterparty' : 'Chuyển cho $counterparty';
+      }
     } else {
-      meaningfulText = type == 'income' ? 'Nhận tiền chuyển khoản' : 'Thanh toán chuyển khoản';
+      note = type == 'income' ? 'Nhận tiền chuyển khoản' : 'Thanh toán chuyển khoản';
     }
 
-    String note = '$source: $meaningfulText';
-    if (note.length > 80) {
-      note = note.substring(0, 80);
+    if (type == 'expense') {
+      final lowerCheck = '${counterparty.toLowerCase()} ${note.toLowerCase()} ${transferContent.toLowerCase()} ${rawText.toLowerCase()}';
+      if (lowerCheck.contains('thuốc') || lowerCheck.contains('thuoc') ||
+          lowerCheck.contains('khám') || lowerCheck.contains('kham') ||
+          lowerCheck.contains('bệnh viện') || lowerCheck.contains('benh vien') ||
+          lowerCheck.contains('viện phí') || lowerCheck.contains('vien phi') ||
+          lowerCheck.contains('nha khoa') || lowerCheck.contains('bác sĩ') || lowerCheck.contains('bac si') ||
+          lowerCheck.contains('phòng khám') || lowerCheck.contains('phong kham') ||
+          lowerCheck.contains('xét nghiệm') || lowerCheck.contains('xet nghiem') ||
+          lowerCheck.contains('tiêm') || lowerCheck.contains('tiem') ||
+          lowerCheck.contains('chích ngừa') || lowerCheck.contains('chich ngua') ||
+          lowerCheck.contains('vắc xin') || lowerCheck.contains('vac xin') ||
+          lowerCheck.contains('răng') || lowerCheck.contains('rang') ||
+          lowerCheck.contains('y tế') || lowerCheck.contains('y te') ||
+          lowerCheck.contains('dược phẩm') || lowerCheck.contains('duoc pham') ||
+          lowerCheck.contains('sức khỏe') || lowerCheck.contains('suc khoe') ||
+          lowerCheck.contains('pharma') || lowerCheck.contains('long châu') || lowerCheck.contains('long chau') ||
+          lowerCheck.contains('pharmacity') || lowerCheck.contains('an khang')) {
+        suggestedCategory = 'SUC_KHOE';
+      } else if (lowerCheck.contains('bách hóa') || lowerCheck.contains('mart') || lowerCheck.contains('mua sắm')) {
+        suggestedCategory = 'MUA_SAM';
+      } else if (lowerCheck.contains('cơm') || lowerCheck.contains('com') || lowerCheck.contains('cà phê') ||
+          lowerCheck.contains('cafe') || lowerCheck.contains('coffee') || lowerCheck.contains('tea') ||
+          lowerCheck.contains('bakery') || lowerCheck.contains('bánh') || lowerCheck.contains('redbull')) {
+        suggestedCategory = 'AN_UONG';
+      }
     }
-
-    // 6. Gán danh mục chuẩn theo 2 mục lớn
-    final categoryCode = type == 'income' ? 'THU_NHAP' : 'AN_UONG';
 
     return {
       'amount': detectedAmount,
       'type': type,
-      'note': note,
-      'transferContent': transferContent,
+      'sender': sender,
       'counterparty': counterparty,
-      'categoryCode': categoryCode,
+      'transferContent': transferContent,
+      'note': note,
+      'categoryCode': suggestedCategory,
       'source': source,
+      'date': detectedDate,
+      'hour': detectedHour,
     };
   }
 }

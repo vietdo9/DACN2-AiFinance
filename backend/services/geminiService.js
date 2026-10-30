@@ -224,7 +224,7 @@ Trả về định dạng JSON:
             'HOA_DON': ['điện', 'nước', 'internet', 'wifi', 'viettel', 'vina', 'mobi', 'tiện ích', 'hóa đơn'],
             'NHA_O': ['tiền nhà', 'tiền trọ', 'phòng trọ', 'chung cư', 'sửa nhà'],
             'GIAI_TRI': ['xem phim', 'cgv', 'game', 'netflix', 'spotify', 'karaoke', 'billiard', 'du lịch'],
-            'SUC_KHOE': ['thuốc', 'khám', 'bệnh viện', 'nha khoa', 'gym', 'bác sĩ', 'yoga'],
+            'SUC_KHOE': ['thuốc', 'thuoc', 'khám', 'kham', 'bệnh viện', 'benh vien', 'nha khoa', 'gym', 'bác sĩ', 'bac si', 'yoga', 'phòng khám', 'phong kham', 'tiệm thuốc', 'tiem thuoc', 'nhà thuốc', 'nha thuoc', 'fpt pharma', 'long châu', 'long chau', 'pharmacity', 'an khang', 'viện phí', 'vien phi', 'xét nghiệm', 'xet nghiem', 'tiêm', 'tiem', 'vắc xin', 'vac xin', 'y tế', 'y te', 'dược phẩm', 'duoc pham', 'sức khỏe', 'suc khoe'],
             'HOC_TAP': ['sách', 'học phí', 'khóa học', 'udemy', 'bút', 'vở', 'trường'],
             'TIET_KIEM_DAU_TU': ['tiết kiệm', 'vàng', 'cổ phiếu', 'chứng khoán', 'đầu tư', 'gửi bank'],
             'THU_NHAP': ['lương', 'thưởng', 'thu nhập', 'hoa hồng', 'bán hàng', 'tiền về']

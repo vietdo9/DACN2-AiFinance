@@ -91,6 +91,7 @@ router.get('/', verifyToken, async (req, res) => {
                     `)
                     .eq('user_id', req.user.id)
                     .order('transaction_date', { ascending: false })
+                    .order('created_at', { ascending: false })
                     .limit(parseInt(limit));
 
                 if (type) query = query.eq('type', type);
@@ -126,24 +127,39 @@ router.post('/', verifyToken, async (req, res) => {
 
         // Nếu người dùng không chọn danh mục nhưng có nhập ghi chú
         if (!category_code && note && note.trim().length > 0) {
-            // 1. Kiểm tra bộ nhớ cá nhân hóa của người dùng trước
-            const userRule = localStore.findUserCategoryRule(req.user.id, note);
-            if (userRule) {
-                category_code = userRule.category_code;
+            const lowerNote = note.toLowerCase();
+            const healthKeywords = [
+                'fpt pharma', 'long châu', 'long chau', 'pharmacity', 'nhà thuốc', 'nha thuoc',
+                'tiệm thuốc', 'tiem thuoc', 'quầy thuốc', 'quay thuoc', 'an khang', 'thuốc', 'thuoc',
+                'khám', 'kham', 'bệnh viện', 'benh vien', 'viện phí', 'vien phi', 'nha khoa',
+                'bác sĩ', 'bac si', 'phòng khám', 'phong kham', 'xét nghiệm', 'xet nghiem',
+                'tiêm', 'tiem', 'vắc xin', 'vac xin', 'y tế', 'y te', 'dược phẩm', 'duoc pham',
+                'sức khỏe', 'suc khoe'
+            ];
+            if (type === 'expense' && healthKeywords.some(k => lowerNote.includes(k))) {
+                category_code = 'SUC_KHOE';
                 ai_predicted = true;
-                ai_confidence = 1.0;
+                ai_confidence = 0.99;
             } else {
-                // 2. Nếu chưa từng gặp, gọi PhoBERT AI tự đoán
-                try {
-                    const aiResult = await AiService.classifyTransaction(note);
-                    if (aiResult?.category_code) {
-                        category_code = aiResult.category_code;
-                        ai_predicted = true;
-                        ai_confidence = aiResult.confidence;
+                // 1. Kiểm tra bộ nhớ cá nhân hóa của người dùng trước
+                const userRule = localStore.findUserCategoryRule(req.user.id, note);
+                if (userRule) {
+                    category_code = userRule.category_code;
+                    ai_predicted = true;
+                    ai_confidence = 1.0;
+                } else {
+                    // 2. Nếu chưa từng gặp, gọi PhoBERT AI tự đoán
+                    try {
+                        const aiResult = await AiService.classifyTransaction(note);
+                        if (aiResult?.category_code) {
+                            category_code = aiResult.category_code;
+                            ai_predicted = true;
+                            ai_confidence = aiResult.confidence;
+                        }
+                    } catch (aiErr) {
+                        console.warn('[!] Không thể gọi PhoBERT AI tự phân loại:', aiErr.message);
+                        category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
                     }
-                } catch (aiErr) {
-                    console.warn('[!] Không thể gọi PhoBERT AI tự phân loại:', aiErr.message);
-                    category_code = type === 'income' ? 'THU_NHAP' : 'AN_UONG';
                 }
             }
         }
@@ -188,6 +204,7 @@ router.post('/', verifyToken, async (req, res) => {
                         type,
                         note: note || '',
                         transaction_date: txDate,
+                        created_at: new Date().toISOString(),
                         ai_predicted,
                         ai_confidence
                     }])
@@ -207,6 +224,7 @@ router.post('/', verifyToken, async (req, res) => {
                             type,
                             note: note || '',
                             transaction_date: txDate,
+                            created_at: new Date().toISOString(),
                             ai_predicted,
                             ai_confidence
                         }])

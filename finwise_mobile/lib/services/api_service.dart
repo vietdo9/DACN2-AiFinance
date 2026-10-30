@@ -264,7 +264,10 @@ class ApiService {
       if (response.statusCode == 200) {
         final res = jsonDecode(response.body);
         final list = res['data'] as List? ?? [];
-        return list.map((e) => TransactionModel.fromJson(e)).toList();
+        final txs = list.map((e) => TransactionModel.fromJson(e)).toList();
+        // Sắp xếp chuẩn theo thứ tự thời gian (mới nhất lên đầu)
+        txs.sort((a, b) => a.compareToTime(b));
+        return txs;
       }
     } catch (e) {
       debugPrint('[ApiService] getTransactions error: $e');
@@ -298,6 +301,7 @@ class ApiService {
     required String note,
     required String type,
     String? categoryCode,
+    String? transactionDate,
   }) async {
     try {
       final response = await http.post(
@@ -308,6 +312,7 @@ class ApiService {
           'note': note,
           'type': type,
           ...? (categoryCode != null ? {'category_code': categoryCode} : null),
+          ...? (transactionDate != null ? {'transaction_date': transactionDate} : null),
         }),
       ).timeout(const Duration(seconds: 15));
 

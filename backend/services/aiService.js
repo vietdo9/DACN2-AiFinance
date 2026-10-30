@@ -41,6 +41,25 @@ class AiService {
      * @param {string} text - Ví dụ: "Ăn phở bò 45k"
      */
     static async classifyTransaction(text) {
+        // Ưu tiên phát hiện Sức khỏe & Thuốc & Bệnh viện chính xác cao
+        const lower = (text || '').toLowerCase();
+        const healthKeywords = [
+            'fpt pharma', 'long châu', 'long chau', 'pharmacity', 'nhà thuốc', 'nha thuoc',
+            'tiệm thuốc', 'tiem thuoc', 'quầy thuốc', 'quay thuoc', 'an khang', 'thuốc', 'thuoc',
+            'khám', 'kham', 'bệnh viện', 'benh vien', 'viện phí', 'vien phi', 'nha khoa',
+            'bác sĩ', 'bac si', 'phòng khám', 'phong kham', 'xét nghiệm', 'xet nghiem',
+            'tiêm', 'tiem', 'vắc xin', 'vac xin', 'y tế', 'y te', 'dược phẩm', 'duoc pham',
+            'sức khỏe', 'suc khoe'
+        ];
+        if (healthKeywords.some(k => lower.includes(k))) {
+            return {
+                category_code: 'SUC_KHOE',
+                category_name: 'Sức khỏe & Y tế',
+                confidence: 0.99,
+                engine: 'Health & Pharmacy Precision Matcher'
+            };
+        }
+
         // 1. Thử gọi PhoBERT trên máy tính cục bộ nếu có
         try {
             const response = await axios.post(

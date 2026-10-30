@@ -110,8 +110,16 @@ const localStore = {
         let userTxs = txs.filter(t => t.user_id === userId);
         if (type) userTxs = userTxs.filter(t => t.type === type);
         if (category) userTxs = userTxs.filter(t => t.category_code === category);
-        // Sắp xếp ngày mới nhất lên đầu
-        userTxs.sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date));
+        // Sắp xếp ngày & thời gian mới nhất lên đầu
+        userTxs.sort((a, b) => {
+            const dateA = new Date(a.transaction_date).getTime();
+            const dateB = new Date(b.transaction_date).getTime();
+            if (dateB !== dateA) return dateB - dateA;
+            const timeA = new Date(a.created_at || a.created_date || 0).getTime();
+            const timeB = new Date(b.created_at || b.created_date || 0).getTime();
+            if (timeB !== timeA) return timeB - timeA;
+            return (b.id || '').localeCompare(a.id || '');
+        });
         return userTxs.slice(0, parseInt(limit));
     },
     findTransactionById: (id, userId) => {
@@ -120,6 +128,9 @@ const localStore = {
     },
     addTransaction: (tx) => {
         const txs = readData(TRANSACTIONS_FILE);
+        if (!tx.created_at) {
+            tx.created_at = new Date().toISOString();
+        }
         txs.unshift(tx);
         writeData(TRANSACTIONS_FILE, txs);
         return tx;

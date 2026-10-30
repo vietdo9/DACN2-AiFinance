@@ -66,6 +66,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           _summary = summaryData;
         }
         final txs = results[1] as List<TransactionModel>;
+        txs.sort((a, b) => a.compareToTime(b));
         _recentTransactions = txs.take(5).toList();
         _isLoading = false;
       });
@@ -432,6 +433,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         final isIncome = tx.type == 'income';
         final color = isIncome ? const Color(0xFF10B981) : const Color(0xFFEF4444);
         final dateStr = DateFormat('dd/MM/yyyy').format(tx.transactionDate);
+        final timeSuffix = tx.createdAt != null
+            ? ' • ${DateFormat('HH:mm').format(tx.createdAt!.toLocal())}'
+            : '';
 
         return Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -471,7 +475,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Text(dateStr, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                        Text('$dateStr$timeSuffix', style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
                         if (tx.aiPredicted) ...[
                           const SizedBox(width: 6),
                           Container(

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/category_model.dart';
 import '../services/api_service.dart';
+import '../services/notification_sync_service.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   const AddTransactionScreen({super.key});
@@ -259,150 +260,29 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   // Tự động bóc tách tin nhắn ngân hàng & áp dụng quy tắc giờ giấc
   Future<void> _parseAndApplyBankSms(String raw) async {
-    final textLower = raw.toLowerCase();
+    final parsed = NotificationSyncService.parseBankText(raw);
+    if (parsed == null) return;
 
-    // 1. Tách số tiền (Hỗ trợ viết tắt dạng k/K như 250k, 50k, 100k, và số đầy đủ)
-    double detectedAmount = 0;
-    String? detectedTypeFromSign;
+    final detectedAmount = (parsed['amount'] as double? ?? 0);
+    final detectedType = parsed['type'] as String? ?? 'expense';
+    final detectedDate = (parsed['date'] as DateTime?) ?? DateTime.now();
+    final detectedHour = (parsed['hour'] as int?) ?? detectedDate.hour;
+    final detectedCounterparty = parsed['counterparty'] as String? ?? '';
+    final detectedNote = parsed['note'] as String? ?? '';
+    final transferContent = parsed['transferContent'] as String? ?? '';
+    final source = parsed['source'] as String? ?? 'Ngân hàng';
+    String suggestedCategory = parsed['categoryCode'] as String? ?? (detectedType == 'income' ? 'THU_NHAP' : 'AN_UONG');
 
-    // Regex 0: Bắt số tiền viết tắt dạng k/K có dấu + / - rõ ràng (ví dụ: +250k, -50k)
-    final kMatch = RegExp(r'([+-])\s*([0-9]{1,4}(?:[.,][0-9]{1,3})?)\s*[kK]\b').firstMatch(raw);
-    if (kMatch != null) {
-      final signStr = kMatch.group(1);
-      final numStr = kMatch.group(2)!.replaceAll(',', '.');
-      final parsedK = double.tryParse(numStr);
-      if (parsedK != null && parsedK > 0) {
-        detectedAmount = parsedK * 1000;
-        if (signStr == '+') detectedTypeFromSign = 'income';
-        if (signStr == '-') detectedTypeFromSign = 'expense';
-      }
-    }
-
-    // Regex 1: Số tiền có dấu + hoặc - rõ ràng
-    if (detectedAmount == 0) {
-      final signedMatch = RegExp(r'([+-])\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false)
-          .firstMatch(raw);
-      if (signedMatch != null) {
-        final signStr = signedMatch.group(1);
-        final rawNum = signedMatch.group(2)!.replaceAll(RegExp(r'[^0-9]'), '');
-        detectedAmount = double.tryParse(rawNum) ?? 0;
-        if (signStr == '+') detectedTypeFromSign = 'income';
-        if (signStr == '-') detectedTypeFromSign = 'expense';
-      }
-    }
-
-    // Regex 2: Số tiền sau các từ khóa
-    if (detectedAmount == 0) {
-      final amtMatch = RegExp(r'(?:[-+]|\b)(?:[0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{4,9})\s*(?:vnd|vnđ|d|đ)?\b', caseSensitive: false).firstMatch(raw);
-      if (amtMatch != null) {
-        final cleaned = amtMatch.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
-        final parsed = double.tryParse(cleaned);
-        if (parsed != null && parsed >= 1000) {
-          detectedAmount = parsed;
-        }
-      }
-    }
-
-    // 2. Phân loại 2 Mục Lớn: Thu Nhập vs Chi Tiêu (Ưu tiên tuyệt đối)
-    String detectedType = 'expense';
-    if (detectedTypeFromSign != null) {
-      detectedType = detectedTypeFromSign;
+    // Nếu là Khoản Chi và đã phát hiện Sức khỏe / Mua thuốc / Bệnh viện -> Giữ nguyên SUC_KHOE
+    if (detectedType == 'expense' && suggestedCategory == 'SUC_KHOE') {
+      // Giữ SUC_KHOE, không để giờ ăn làm đổi sang AN_UONG
     } else {
-      final hasIncomeKeywords = textLower.contains('+') ||
-          textLower.contains('cong tien') || textLower.contains('cộng tiền') ||
-          textLower.contains('duoc cong') || textLower.contains('được cộng') ||
-          textLower.contains('nhan tien tu') || textLower.contains('nhận tiền từ') ||
-          textLower.contains('nhan duoc tien') || textLower.contains('nhận được tiền') ||
-          textLower.contains('tien vao') || textLower.contains('tiền vào') ||
-          textLower.contains('tien ve') || textLower.contains('tiền về') ||
-          textLower.contains('chuyen den tai khoan') || textLower.contains('chuyển đến tài khoản') ||
-          textLower.contains('hoan tien') || textLower.contains('hoàn tiền') || textLower.contains('refund') ||
-          textLower.contains('credit') || textLower.contains('cr:');
-
-      final hasExpenseKeywords = textLower.contains('-') ||
-          textLower.contains('tru') || textLower.contains('trừ') ||
-          textLower.contains('bi tru') || textLower.contains('bị trừ') ||
-          textLower.contains('thanh toan') || textLower.contains('thanh toán') ||
-          textLower.contains('rut tien') || textLower.contains('rút tiền') ||
-          textLower.contains('chuyen di') || textLower.contains('chuyển đi') ||
-          textLower.contains('debit') || textLower.contains('dr:');
-
-      if (hasIncomeKeywords && !hasExpenseKeywords) {
-        detectedType = 'income';
-      } else if (hasIncomeKeywords && hasExpenseKeywords) {
-        if (textLower.contains('cộng tiền') || textLower.contains('cong tien') || textLower.contains('nhận tiền từ') || textLower.contains('nhan tien tu')) {
-          detectedType = 'income';
-        } else {
-          detectedType = 'expense';
-        }
-      } else {
-        detectedType = 'expense';
+      bool isMealTime = (detectedHour >= 11 && detectedHour <= 13) ||
+          (detectedHour >= 18 && detectedHour <= 20) ||
+          (detectedHour >= 7 && detectedHour <= 9);
+      if (detectedType == 'expense' && isMealTime && detectedAmount <= 200000 && suggestedCategory == 'AN_UONG') {
+        suggestedCategory = 'AN_UONG';
       }
-    }
-
-    // 3. Trích xuất ngày tháng
-    DateTime detectedDate = DateTime.now();
-    final dateMatch = RegExp(r'\b(0?[1-9]|[12][0-9]|3[01])[\/\-\.](0?[1-9]|1[012])[\/\-\.](202\d)\b').firstMatch(raw);
-    if (dateMatch != null) {
-      try {
-        final d = int.parse(dateMatch.group(1)!);
-        final m = int.parse(dateMatch.group(2)!);
-        final y = int.parse(dateMatch.group(3)!);
-        detectedDate = DateTime(y, m, d);
-      } catch (_) {}
-    }
-
-    // 4. Trích xuất giờ và áp dụng Time Heuristics
-    int detectedHour = detectedDate.hour;
-    final timeMatch = RegExp(r'\b([0-1]?[0-9]|2[0-3])[:h]([0-5][0-9])\b').firstMatch(raw);
-    if (timeMatch != null) {
-      detectedHour = int.tryParse(timeMatch.group(1)!) ?? detectedHour;
-    }
-
-    // 5. Trích xuất người nhận/gửi và nội dung chuyển tiền
-    String detectedCounterparty = '';
-    final partyRegex = RegExp(
-      r'(?:đến|den|tới|toi|gửi đến|gui den|chuyển đến|chuyen den|cho|từ|tu|người nhận|nguoi nhan|người gửi|nguoi gui)[:\s]+([A-Za-z0-9\sÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴÝỶỸ]{3,35})(?=[.,\n|]|\s+(?:lúc|luc|ngày|ngay|vào|vao|nội dung|noi dung|nd|ref|số dư|so du)|$)',
-      caseSensitive: false,
-    );
-    final partyMatch = partyRegex.firstMatch(raw);
-    if (partyMatch != null) {
-      final rawParty = partyMatch.group(1)!.trim();
-      if (!RegExp(r'^(vnd|vnđ|d|đ|tk|tài khoản|so du|số dư|thành công|thanh cong)\b', caseSensitive: false).hasMatch(rawParty)) {
-        detectedCounterparty = rawParty;
-      }
-    }
-
-    String detectedNote = '';
-    final ndMatch = RegExp(
-      r'(?:\bnd\b|\bnoi dung\b|\bnội dung\b|\blời nhắn\b|\bloi nhan\b|\bref\b|\blý do\b|\bly do\b)[:\s]+([^.\n|]+)',
-      caseSensitive: false,
-    ).firstMatch(raw);
-
-    if (ndMatch != null) {
-      detectedNote = ndMatch.group(1)!.trim();
-      final dotParts = detectedNote.split('.');
-      if (dotParts.length > 1 && dotParts.last.trim().length >= 3) {
-        detectedNote = dotParts.last.trim();
-      }
-    } else {
-      final taiMatch = RegExp(r'\b(?:tại|tai)\s+([^.\n|]+)', caseSensitive: false).firstMatch(raw);
-      if (taiMatch != null) {
-        detectedNote = 'Tại ${taiMatch.group(1)!.trim()}';
-      } else {
-        detectedNote = raw.split('\n').first.trim();
-        if (detectedNote.length > 40) detectedNote = detectedNote.substring(0, 40);
-      }
-    }
-
-    // 6. Gán danh mục theo 2 Mục Lớn:
-    // Nếu là Thu Nhập -> Bắt buộc gán THU_NHAP, tuyệt đối không cho PhoBERT đổi sang Ăn uống/Mua sắm!
-    String suggestedCategory = detectedType == 'income' ? 'THU_NHAP' : 'AN_UONG';
-    
-    // Nếu là Khoản Chi, áp dụng quy tắc giờ ăn
-    bool isMealTime = (detectedHour >= 11 && detectedHour <= 13) || (detectedHour >= 18 && detectedHour <= 20) || (detectedHour >= 7 && detectedHour <= 9);
-    if (detectedType == 'expense' && isMealTime && detectedAmount <= 200000) {
-      suggestedCategory = 'AN_UONG';
     }
 
     setState(() {
@@ -417,13 +297,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _selectedCategoryCode = suggestedCategory;
       }
       _aiFeedbackMessage = detectedType == 'income'
-          ? '✨ Nhận diện: Thu Nhập ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ'
-          : '✨ Nhận diện: Khoản Chi ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ';
+          ? '✨ Nhận diện: Thu Nhập ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ ($source)'
+          : '✨ Nhận diện: Khoản Chi ${NumberFormat('#,###', 'vi_VN').format(detectedAmount)}đ ($source)';
     });
 
-    // Chỉ gọi PhoBERT AI phân loại chi tiết NẾU LÀ KHOẢN CHI
-    if (detectedType == 'expense' && (detectedNote.isNotEmpty || detectedCounterparty.isNotEmpty)) {
-      final textForAi = detectedNote.isNotEmpty ? detectedNote : detectedCounterparty;
+    // Chỉ gọi PhoBERT AI phân loại chi tiết NẾU LÀ KHOẢN CHI VÀ CHƯA PHẢI SỨC KHỎE
+    if (detectedType == 'expense' && suggestedCategory != 'SUC_KHOE' && (detectedNote.isNotEmpty || detectedCounterparty.isNotEmpty)) {
+      final textForAi = transferContent.isNotEmpty
+          ? transferContent
+          : (detectedCounterparty.isNotEmpty ? detectedCounterparty : detectedNote);
       final aiRes = await ApiService().classifyWithAi(textForAi);
       if (mounted && aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
         final catCode = aiRes['category_code'];
@@ -581,6 +463,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       note: finalNote,
       type: _type,
       categoryCode: finalCat,
+      transactionDate: DateFormat('yyyy-MM-dd').format(_selectedDate),
     );
 
     if (mounted) {
