@@ -2,6 +2,7 @@ const axios = require('axios');
 const GeminiService = require('./geminiService');
 const PhobertHfService = require('./phobertHfService');
 const OcrSpaceService = require('./ocrSpaceService');
+const LstmCloudService = require('./lstmCloudService');
 require('dotenv').config();
 
 const AI_BASE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
@@ -22,16 +23,18 @@ class AiService {
             };
         } catch (error) {
             const hasHf = Boolean(process.env.HF_TOKEN);
+            const hasLstmCloud = LstmCloudService.isAvailable();
 
             return {
                 status: 'healthy',
                 mode: 'cloud_hybrid_active',
                 ocr_engine: 'Cloud OCR.Space Engine (Siêu tốc < 1s, Không Timeout)',
                 phobert_cloud: hasHf ? `vietdo99/phobert-finwise (Hugging Face)` : 'Offline Rule-based Classifier',
+                lstm_cloud: hasLstmCloud ? 'Self-trained 2-Layer LSTM (24/7 Cloud In-Memory Engine)' : 'Statistical Forecaster',
                 active_engine: hasHf
-                    ? 'Cloud OCR + Your Self-Trained PhoBERT (Hugging Face)'
-                    : 'Cloud OCR.Space Engine',
-                message: 'Máy tính đang tắt. Hệ thống đang chạy 100% trên Cloud 24/7!'
+                    ? 'Cloud OCR + Self-Trained PhoBERT (Hugging Face) + Self-Trained LSTM (Cloud)'
+                    : 'Cloud OCR + Self-Trained LSTM (Cloud)',
+                message: 'Máy tính đang tắt. Hệ thống đang chạy 100% các mô hình AI tự huấn luyện trên Cloud 24/7!'
             };
         }
     }
@@ -91,7 +94,7 @@ class AiService {
      * @param {number[]} dailyExpenses - Mảng ít nhất 30 số thực
      */
     static async forecastExpenses(dailyExpenses) {
-        // 1. Thử gọi mô hình LSTM trên máy tính cục bộ
+        // 1. Thử gọi mô hình LSTM trên máy tính cục bộ nếu có GPU
         try {
             const response = await axios.post(
                 `${AI_BASE_URL}/api/v1/ai/forecast`,
@@ -103,6 +106,16 @@ class AiService {
                 engine: 'Self-trained LSTM Time-Series Forecaster (Local GPU)'
             };
         } catch (error) {
+            // 2. Chạy trực tiếp mô hình LSTM tự train trên Cloud (24/7 In-Memory Engine)
+            if (LstmCloudService.isAvailable()) {
+                try {
+                    return LstmCloudService.forecast(dailyExpenses);
+                } catch (e) {
+                    console.error('[!] Lỗi LSTM Cloud Service:', e.message);
+                }
+            }
+
+            // 3. Fallback dự phòng cuối cùng
             return GeminiService.forecastExpenses(dailyExpenses);
         }
     }
