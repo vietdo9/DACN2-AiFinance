@@ -258,7 +258,7 @@ class ApiService {
   Future<List<TransactionModel>> getTransactions() async {
     try {
       final response = await http
-          .get(Uri.parse('$baseUrl/api/transactions'), headers: _headers)
+          .get(Uri.parse('$baseUrl/api/transactions?limit=500'), headers: _headers)
           .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {

@@ -77,7 +77,7 @@ router.get('/categories', async (req, res) => {
 // 2. Lấy danh sách giao dịch của NGƯỜI DÙNG HIỆN TẠI (Cách ly 100% theo user_id)
 router.get('/', verifyToken, async (req, res) => {
     try {
-        const { limit = 50, type, category } = req.query;
+        const { limit = 500, type, category } = req.query;
 
         // 1. Thử lấy từ Supabase
         if (isSupabaseConfigured()) {
