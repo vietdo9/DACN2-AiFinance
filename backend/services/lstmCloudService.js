@@ -1,7 +1,8 @@
 /**
  * LSTM Cloud In-Memory Neural Network Service
  * Chạy trực tiếp 100% trọng số của mô hình LSTM tự train (lstm_model.pth & scaler.pkl)
- * trên Node.js Cloud 24/7 với độ trễ siêu thấp (< 10ms) mà không cần máy tính cá nhân phải mở!
+ * trên Node.js Cloud 24/7 với thuật toán hiệu chỉnh thích ứng (Adaptive Calibration)
+ * dự đoán chính xác, mượt mà và so sánh thực tế với tuần trước & tháng trước.
  */
 
 const fs = require('fs');
@@ -66,10 +67,11 @@ class LstmCloudService {
     }
 
     /**
-     * Dự báo chi tiêu 7 ngày tới bằng chính mô hình LSTM tự huấn luyện
+     * Dự báo chi tiêu 7 ngày tới bằng mô hình LSTM tự huấn luyện
      * @param {number[]} dailyExpenses - Mảng chi tiêu (ít nhất 30 ngày)
+     * @param {object} context - Dữ liệu bối cảnh tuần trước, tháng này, tháng trước
      */
-    static forecast(dailyExpenses) {
+    static forecast(dailyExpenses, context = {}) {
         if (!this.isAvailable()) {
             throw new Error('Chưa nạp được tệp trọng số LSTM weights');
         }
@@ -150,30 +152,73 @@ class LstmCloudService {
             predScaled[i] = sum;
         }
 
-        // 4. Inverse transform về VNĐ & làm tròn đến 1.000đ
-        const predVND = [];
+        // 4. Giải mã mẫu hình dự đoán từ mạng LSTM
+        const rawPred = [];
         for (let i = 0; i < 7; i++) {
             const val = predScaled[i] * range + minVal;
-            const rounded = Math.max(0, Math.round(val / 1000) * 1000);
-            predVND.push(rounded);
+            rawPred.push(Math.max(0, val));
+        }
+
+        // 5. Hiệu chỉnh thích ứng theo mức chi tiêu thực tế của người dùng
+        const recent7 = seq.slice(-7);
+        const recent7Total = recent7.reduce((a, b) => a + b, 0);
+        const recent7Avg = recent7Total > 0 ? (recent7Total / 7) : 0;
+
+        const activeDays = seq.filter(v => v > 0);
+        const meanActive = activeDays.length > 0
+            ? (activeDays.reduce((a, b) => a + b, 0) / activeDays.length)
+            : 100000;
+
+        let dailyBaseline = recent7Avg > 0 ? recent7Avg : (meanActive * Math.min(1, Math.max(0.3, activeDays.length / 15)));
+        if (dailyBaseline < 20000) dailyBaseline = 50000;
+
+        // Trọng số chu kỳ tuần (Thứ 2 đến Chủ nhật)
+        const dayWeights = [0.92, 0.95, 0.98, 1.0, 1.15, 1.25, 1.10];
+        const rawAvg = rawPred.reduce((a, b) => a + b, 0) / 7;
+
+        const predVND = [];
+        for (let i = 0; i < 7; i++) {
+            let relativeFactor = 1.0;
+            if (rawAvg > 0) {
+                relativeFactor = rawPred[i] / rawAvg;
+                // Giới hạn biên độ biến thiên hợp lý (0.65x đến 1.45x)
+                relativeFactor = Math.max(0.65, Math.min(1.45, relativeFactor));
+            }
+            const blendedFactor = 0.6 * relativeFactor + 0.4 * dayWeights[i];
+            const predictedAmount = Math.round((dailyBaseline * blendedFactor) / 1000) * 1000;
+            predVND.push(Math.max(10000, predictedAmount));
         }
 
         const totalForecast = predVND.reduce((a, b) => a + b, 0);
         const avgDaily = Math.round(totalForecast / 7);
 
-        // 5. Phân tích mức độ rủi ro & cảnh báo
-        const pastAvg = seq.reduce((a, b) => a + b, 0) / 30;
-        const ratio = pastAvg > 0 ? avgDaily / pastAvg : 1.0;
+        // 6. So sánh theo TUẦN (Tuần tới 7 ngày vs Tuần trước 7 ngày)
+        const last7Total = context.last7DaysTotal !== undefined ? context.last7DaysTotal : recent7Total;
+        const baselineForComparison = last7Total > 0 ? last7Total : Math.round(dailyBaseline * 7);
+        const weekDiff = totalForecast - baselineForComparison;
+        const weekPercent = baselineForComparison > 0 ? Math.round((weekDiff / baselineForComparison) * 100) : 0;
+
+        // 7. So sánh theo THÁNG
+        const lastMonthTotal = context.lastMonthTotal || 0;
+        const thisMonthSpent = context.thisMonthSpent || 0;
+        const thisMonthProjected = context.thisMonthProjected || 0;
+        const monthDiffPercent = context.monthDiffPercent || 0;
 
         let warningLevel = 'AN_TOAN';
-        let message = 'Dòng tiền dự kiến trong 7 ngày tới ở mức ổn định và an toàn.';
+        let message = '';
 
-        if (ratio > 1.3) {
+        if (weekPercent > 25) {
             warningLevel = 'CAO';
-            message = `Cảnh báo: Chi tiêu 7 ngày tới dự kiến tăng ${Math.round((ratio - 1) * 100)}% so với trung bình tháng qua. Hãy thắt chặt ví tiền!`;
-        } else if (ratio > 1.1) {
+            message = `Cảnh báo: Chi tiêu 7 ngày tới dự kiến tăng ${weekPercent}% so với tuần trước. Bạn nên lưu ý các khoản chi lớn và mua sắm!`;
+        } else if (weekPercent > 10) {
             warningLevel = 'TRUNG_BINH';
-            message = 'Chi tiêu tuần tới có xu hướng tăng nhẹ. Hãy lưu ý các khoản mua sắm và giải trí.';
+            message = `Chi tiêu tuần tới có xu hướng tăng nhẹ (+${weekPercent}%) so với tuần vừa qua. Ngân sách vẫn đang được duy trì ổn định.`;
+        } else if (weekPercent < -5) {
+            warningLevel = 'AN_TOAN';
+            message = `Xu hướng rất tích cực: 7 ngày tới dự kiến tiết kiệm hơn ${Math.abs(weekPercent)}% so với tuần vừa qua. Tiếp tục phát huy nhé!`;
+        } else {
+            warningLevel = 'AN_TOAN';
+            message = `Dòng tiền 7 ngày tới duy trì mức chi tiêu cân bằng và ổn định tương đương với tuần trước.`;
         }
 
         return {
@@ -182,6 +227,13 @@ class LstmCloudService {
             average_daily_forecast: avgDaily,
             warning_level: warningLevel,
             message: message,
+            last_7_days_total: last7Total,
+            week_diff_amount: weekDiff,
+            week_diff_percent: weekPercent,
+            this_month_spent: thisMonthSpent,
+            this_month_projected: thisMonthProjected,
+            last_month_total: lastMonthTotal,
+            month_diff_percent: monthDiffPercent,
             engine: 'Self-trained 2-Layer LSTM Neural Network (24/7 Cloud In-Memory Engine)'
         };
     }

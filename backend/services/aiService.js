@@ -93,7 +93,7 @@ class AiService {
      * Dự báo chi tiêu 7 ngày tới (LSTM ưu tiên, Statistical Forecaster dự phòng)
      * @param {number[]} dailyExpenses - Mảng ít nhất 30 số thực
      */
-    static async forecastExpenses(dailyExpenses) {
+    static async forecastExpenses(dailyExpenses, context = {}) {
         // 1. Thử gọi mô hình LSTM trên máy tính cục bộ nếu có GPU
         try {
             const response = await axios.post(
@@ -103,20 +103,25 @@ class AiService {
             );
             return {
                 ...response.data,
+                ...context,
                 engine: 'Self-trained LSTM Time-Series Forecaster (Local GPU)'
             };
         } catch (error) {
             // 2. Chạy trực tiếp mô hình LSTM tự train trên Cloud (24/7 In-Memory Engine)
             if (LstmCloudService.isAvailable()) {
                 try {
-                    return LstmCloudService.forecast(dailyExpenses);
+                    return LstmCloudService.forecast(dailyExpenses, context);
                 } catch (e) {
                     console.error('[!] Lỗi LSTM Cloud Service:', e.message);
                 }
             }
 
             // 3. Fallback dự phòng cuối cùng
-            return GeminiService.forecastExpenses(dailyExpenses);
+            const fallback = GeminiService.forecastExpenses(dailyExpenses);
+            return {
+                ...fallback,
+                ...context
+            };
         }
     }
 

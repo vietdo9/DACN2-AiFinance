@@ -17,6 +17,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   bool _isLoading = true;
   ForecastModel? _forecast;
   bool _isDemoMode = false;
+  int _selectedViewTab = 0; // 0: Theo Tuần (7 Ngày), 1: Theo Tháng
 
   @override
   void initState() {
@@ -67,9 +68,6 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     if (!forecast.hasEnoughData && !_isDemoMode) {
       return _buildEmptyState();
     }
-
-    final warningColor = _getWarningColor(forecast.warningLevel);
-    final warningText = _getWarningText(forecast.warningLevel);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -122,252 +120,648 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
               ),
             ],
 
-            // 1. Thẻ Cảnh Báo Rủi Ro Ngân Sách
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: warningColor.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: warningColor.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: warningColor,
-                      shape: BoxShape.circle,
+            // 1. Bộ chuyển đổi chế độ xem: Theo Tuần vs Theo Tháng
+            _buildViewSegment(),
+            const SizedBox(height: 16),
+
+            // 2. Nội dung hiển thị theo chế độ đã chọn
+            if (_selectedViewTab == 0)
+              _buildWeekView(forecast)
+            else
+              _buildMonthView(forecast),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Segment chọn xem Theo Tuần / Theo Tháng
+  Widget _buildViewSegment() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE2E8F0),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedViewTab = 0),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                decoration: BoxDecoration(
+                  color: _selectedViewTab == 0 ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: _selectedViewTab == 0
+                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.date_range_rounded,
+                      size: 16,
+                      color: _selectedViewTab == 0 ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
                     ),
-                    child: const Icon(Icons.insights, color: Colors.white, size: 22),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(width: 6),
+                    Text(
+                      'Theo Tuần (7 Ngày Tới)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: _selectedViewTab == 0 ? FontWeight.bold : FontWeight.w500,
+                        color: _selectedViewTab == 0 ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedViewTab = 1),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                decoration: BoxDecoration(
+                  color: _selectedViewTab == 1 ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: _selectedViewTab == 1
+                      ? [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))]
+                      : null,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.calendar_month_rounded,
+                      size: 16,
+                      color: _selectedViewTab == 1 ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Theo Tháng (Tháng Này)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: _selectedViewTab == 1 ? FontWeight.bold : FontWeight.w500,
+                        color: _selectedViewTab == 1 ? const Color(0xFF4F46E5) : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // VIEW 1: DỰ BÁO THEO TUẦN (7 NGÀY TỚI)
+  // ==========================================
+  Widget _buildWeekView(ForecastModel forecast) {
+    final warningColor = _getWarningColor(forecast.warningLevel);
+    final warningText = _getWarningText(forecast.warningLevel);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 1. Thẻ Cảnh Báo Rủi Ro
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: warningColor.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: warningColor.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: warningColor, shape: BoxShape.circle),
+                child: const Icon(Icons.insights, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          children: [
-                            const Text('Mức cảnh báo:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: warningColor,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                warningText,
-                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          forecast.message,
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.3),
+                        const Text('Đánh giá AI:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(color: warningColor, borderRadius: BorderRadius.circular(6)),
+                          child: Text(warningText, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(forecast.message, style: const TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.35)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // 2. Thẻ So Sánh Tuần (Tuần Trước vs Tuần Tới)
+        _buildWeekComparisonCard(forecast),
+
+        const SizedBox(height: 20),
+
+        // 3. Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo
+        const Text(
+          'Biểu Đồ Dự Báo 7 Ngày Tiếp Theo',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 24, 20, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: SizedBox(
+            height: 220,
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (value) => FlLine(color: const Color(0xFFF1F5F9), strokeWidth: 1),
+                ),
+                titlesData: FlTitlesData(
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      interval: 1,
+                      getTitlesWidget: (val, meta) {
+                        final idx = val.toInt();
+                        if (idx >= 0 && idx < 7) {
+                          final date = DateTime.now().add(Duration(days: idx + 1));
+                          final dayStr = DateFormat('dd/MM').format(date);
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(dayStr, style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 42,
+                      getTitlesWidget: (val, meta) {
+                        if (val == 0) return const SizedBox.shrink();
+                        return Text('${(val / 1000).toStringAsFixed(0)}k', style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8)));
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: List.generate(forecast.predictedNext7Days.length, (i) {
+                      return FlSpot(i.toDouble(), forecast.predictedNext7Days[i]);
+                    }),
+                    isCurved: true,
+                    curveSmoothness: 0.35,
+                    color: const Color(0xFF4F46E5),
+                    barWidth: 3,
+                    isStrokeCapRound: true,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
+                        radius: 4,
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                        strokeColor: const Color(0xFF4F46E5),
+                      ),
+                    ),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF4F46E5).withValues(alpha: 0.25),
+                          const Color(0xFF4F46E5).withValues(alpha: 0.0),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
+          ),
+        ),
 
-            const SizedBox(height: 20),
+        const SizedBox(height: 20),
 
-            // 2. Thống Kê Tổng Dự Báo
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        )
-                      ],
+        // 4. Danh sách chi tiết từng ngày trong 7 ngày tới
+        const Text(
+          'Kế Hoạch Chi Tiết 7 Ngày Tới',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+        ),
+        const SizedBox(height: 10),
+        _buildDailyList(forecast),
+      ],
+    );
+  }
+
+  // Thẻ So Sánh Tuần (Tuần Trước vs Tuần Tới)
+  Widget _buildWeekComparisonCard(ForecastModel forecast) {
+    final diffPct = forecast.weekDiffPercent;
+    final isIncrease = diffPct > 0;
+    final isDecrease = diffPct < 0;
+
+    Color badgeColor;
+    String badgeText;
+    IconData badgeIcon;
+
+    if (isIncrease) {
+      badgeColor = diffPct > 20 ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
+      badgeText = '+$diffPct% so với tuần trước';
+      badgeIcon = Icons.trending_up;
+    } else if (isDecrease) {
+      badgeColor = const Color(0xFF10B981);
+      badgeText = 'Tiết kiệm ${diffPct.abs()}%';
+      badgeIcon = Icons.trending_down;
+    } else {
+      badgeColor = const Color(0xFF4F46E5);
+      badgeText = 'Ổn định (~0%)';
+      badgeIcon = Icons.trending_flat;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              // Cột Tuần trước
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('7 ngày vừa qua (Thực tế)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                    const SizedBox(height: 4),
+                    Text(
+                      currencyFormat.format(forecast.last7DaysTotal),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF334155)),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Tổng dự chi 7 ngày tới', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-                        const SizedBox(height: 4),
-                        Text(
-                          currencyFormat.format(forecast.totalForecast),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF4F46E5)),
-                        ),
-                      ],
+                  ],
+                ),
+              ),
+
+              // Mũi tên & Huy hiệu so sánh ở giữa
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: badgeColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(badgeIcon, size: 14, color: badgeColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      badgeText,
+                      style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              // Cột Tuần tới
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text('7 ngày tới (Dự kiến)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                    const SizedBox(height: 4),
+                    Text(
+                      currencyFormat.format(forecast.totalForecast),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4F46E5)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 24, thickness: 1, color: Color(0xFFF1F5F9)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Mức chi tiêu trung bình / ngày:', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+              Text(
+                '~ ${currencyFormat.format(forecast.averageDailyForecast)} / ngày',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Danh sách chi tiết 7 ngày
+  Widget _buildDailyList(ForecastModel forecast) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF1F5F9)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        children: List.generate(forecast.predictedNext7Days.length, (i) {
+          final amt = forecast.predictedNext7Days[i];
+          final date = DateTime.now().add(Duration(days: i + 1));
+          final dateStr = DateFormat('EEEE, dd/MM', 'vi_VN').format(date);
+          final isWeekend = date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
+
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: i < forecast.predictedNext7Days.length - 1
+                  ? const Border(bottom: BorderSide(color: Color(0xFFF8FAFC), width: 1.5))
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isWeekend ? const Color(0xFFFEF3C7) : const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Ngày ${i + 1}',
+                    style: TextStyle(
+                      color: isWeekend ? const Color(0xFFD97706) : const Color(0xFF4F46E5),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        )
-                      ],
+                  child: Text(
+                    dateStr,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isWeekend ? FontWeight.bold : FontWeight.normal,
+                      color: const Color(0xFF334155),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Chi tiêu TB/ngày', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-                        const SizedBox(height: 4),
-                        Text(
-                          currencyFormat.format(forecast.averageDailyForecast),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1E293B)),
-                        ),
-                      ],
-                    ),
+                  ),
+                ),
+                Text(
+                  currencyFormat.format(amt),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isWeekend ? const Color(0xFFD97706) : const Color(0xFF1E293B),
                   ),
                 ),
               ],
             ),
+          );
+        }),
+      ),
+    );
+  }
 
-            const SizedBox(height: 24),
+  // ==========================================
+  // VIEW 2: DỰ BÁO THEO THÁNG (THÁNG NÀY VS THÁNG TRƯỚC)
+  // ==========================================
+  Widget _buildMonthView(ForecastModel forecast) {
+    final now = DateTime.now();
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final daysPassed = now.day;
+    final progress = (daysPassed / daysInMonth).clamp(0.0, 1.0);
 
-            // 3. Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo
-            const Text(
-              'Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 24, 20, 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
+    final monthDiff = forecast.monthDiffPercent;
+    final isIncrease = monthDiff > 0;
+    final isDecrease = monthDiff < 0;
+
+    Color badgeColor;
+    String badgeText;
+    if (isIncrease) {
+      badgeColor = monthDiff > 15 ? const Color(0xFFEF4444) : const Color(0xFFF59E0B);
+      badgeText = 'Dự kiến tăng +$monthDiff% so với tháng trước';
+    } else if (isDecrease) {
+      badgeColor = const Color(0xFF10B981);
+      badgeText = 'Dự kiến tiết kiệm ${monthDiff.abs()}% so với tháng trước';
+    } else {
+      badgeColor = const Color(0xFF4F46E5);
+      badgeText = 'Dự kiến ngang bằng tháng trước';
+    }
+
+    final remainingProjected = (forecast.thisMonthProjected - forecast.thisMonthSpent).clamp(0.0, double.infinity);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 1. Thẻ So Sánh Tháng
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Tháng ${now.month}/${now.year}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B))),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                    child: Text(badgeText, style: TextStyle(color: badgeColor, fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
                 ],
               ),
-              child: SizedBox(
-                height: 220,
-                child: LineChart(
-                  LineChartData(
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: false,
-                      getDrawingHorizontalLine: (value) => FlLine(color: const Color(0xFFF1F5F9), strokeWidth: 1),
-                    ),
-                    titlesData: FlTitlesData(
-                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          interval: 1,
-                          getTitlesWidget: (val, meta) {
-                            final idx = val.toInt();
-                            if (idx >= 0 && idx < 7) {
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text('N+${idx + 1}', style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
-                              );
-                            }
-                            return const SizedBox.shrink();
-                          },
-                        ),
-                      ),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 42,
-                          getTitlesWidget: (val, meta) {
-                            if (val == 0) return const SizedBox.shrink();
-                            return Text('${(val / 1000).toStringAsFixed(0)}k', style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8)));
-                          },
-                        ),
+              const SizedBox(height: 16),
+
+              // So sánh 3 cột: Tháng trước vs Đã chi tháng này vs Dự kiến cả tháng
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Tháng trước', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              currencyFormat.format(forecast.lastMonthTotal),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155)),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    borderData: FlBorderData(show: false),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: List.generate(forecast.predictedNext7Days.length, (i) {
-                          return FlSpot(i.toDouble(), forecast.predictedNext7Days[i]);
-                        }),
-                        isCurved: true,
-                        color: const Color(0xFF4F46E5),
-                        barWidth: 3,
-                        dotData: const FlDotData(show: true),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
-                        ),
-                      ),
-                    ],
                   ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Đã chi đến nay', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              currencyFormat.format(forecast.thisMonthSpent),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF10B981)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Dự kiến cả tháng', style: TextStyle(color: Color(0xFF4F46E5), fontSize: 11, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              currencyFormat.format(forecast.thisMonthProjected),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF4F46E5)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 18),
+
+              // Thanh tiến độ thời gian & ngân sách
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Tiến độ tháng: Ngày $daysPassed / $daysInMonth', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  Text('${(progress * 100).toInt()}% thời gian', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF4F46E5))),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: const Color(0xFFF1F5F9),
+                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4F46E5)),
+                  minHeight: 8,
                 ),
               ),
-            ),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 14),
 
-            // 4. Danh Sách Chi Tiết Từng Ngày
-            const Text(
-              'Chi Tiết Từng Ngày',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-            ),
-            const SizedBox(height: 12),
-            Column(
-              children: List.generate(forecast.predictedNext7Days.length, (i) {
-                final amt = forecast.predictedNext7Days[i];
-                final date = DateTime.now().add(Duration(days: i + 1));
-                const weekdays = ['Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật'];
-                final dayName = weekdays[date.weekday - 1];
-                final dateStr = '$dayName, ${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}';
-
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFF1F5F9)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2FF),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text('Ngày ${i + 1}', style: const TextStyle(color: Color(0xFF4F46E5), fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(dateStr, style: const TextStyle(fontSize: 13, color: Color(0xFF334155))),
-                      ),
-                      Text(
-                        currencyFormat.format(amt),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ),
-          ],
+              // Dự kiến các ngày còn lại
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Dự kiến chi trong các ngày còn lại:', style: TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                    Text(
+                      currencyFormat.format(remainingProjected),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+
+        const SizedBox(height: 20),
+
+        // 2. Thẻ Lời Khuyên Tài Chính Cho Tháng
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFF59E0B), size: 20),
+                  SizedBox(width: 8),
+                  Text('Gợi ý quản lý chi tiêu tháng', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B))),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                monthDiff <= 0
+                    ? 'Tuyệt vời! Theo tốc độ hiện tại, chi tiêu tháng này của bạn dự kiến sẽ tiết kiệm hơn hoặc bằng tháng trước. Hãy duy trì thói quen chi tiêu kỷ luật này đến cuối tháng.'
+                    : 'Lưu ý: Tốc độ chi tiêu hiện tại đang dự phóng cao hơn tháng trước $monthDiff%. Hãy rà soát lại các khoản chi không thiết yếu (mua sắm, giải trí) để giữ ngân sách an toàn.',
+                style: const TextStyle(fontSize: 12.5, color: Color(0xFF475569), height: 1.45),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -409,11 +803,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
               const Text(
                 'Tài Khoản Mới Đang Chờ Dữ Liệu',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 10),
               const Text(
@@ -522,7 +912,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   String _getWarningText(String level) {
     switch (level) {
       case 'CAO':
-        return 'NGUY CƠ BỘI CHI';
+        return 'CẦN THẮT CHẶT';
       case 'TRUNG_BINH':
         return 'CẦN LƯU Ý';
       case 'AN_TOAN':

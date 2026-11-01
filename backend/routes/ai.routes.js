@@ -83,11 +83,17 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
     try {
         const isDemoRequested = req.query.demo === 'true';
 
-        // Lấy các giao dịch chi tiêu của chính tài khoản này trong 30 ngày qua
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const dateStr = thirtyDaysAgo.toISOString().split('T')[0];
+        const now = new Date();
+        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfThisMonthStr = startOfThisMonth.toISOString().split('T')[0];
 
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const startOfLastMonthStr = startOfLastMonth.toISOString().split('T')[0];
+
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+        const endOfLastMonthStr = endOfLastMonth.toISOString().split('T')[0];
+
+        // Lấy các giao dịch chi tiêu từ đầu tháng trước để so sánh đầy đủ cả Tuần và Tháng
         let txs = [];
 
         // 1. Lấy từ Supabase
@@ -98,7 +104,7 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
                     .select('amount, transaction_date')
                     .eq('user_id', req.user.id)
                     .eq('type', 'expense')
-                    .gte('transaction_date', dateStr)
+                    .gte('transaction_date', startOfLastMonthStr)
                     .order('transaction_date', { ascending: true });
 
                 if (sbTxs && sbTxs.length > 0) {
@@ -110,7 +116,7 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
         // 2. Lấy từ Local Store nếu chưa có
         if (txs.length === 0) {
             const allTxs = localStore.getTransactions(req.user.id, { type: 'expense' });
-            txs = allTxs.filter(t => t.transaction_date >= dateStr);
+            txs = allTxs.filter(t => t.transaction_date >= startOfLastMonthStr);
         }
 
         // KIỂM TRA: Nếu là tài khoản mới và chưa có giao dịch chi tiêu nào
@@ -132,13 +138,24 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
                 150000, 95000, 135000, 170000, 210000, 380000, 450000,
                 130000, 160000
             ];
-            const forecastResult = await AiService.forecastExpenses(demoSeries);
+            const demoRecent7 = demoSeries.slice(-7);
+            const demoLast7Total = demoRecent7.reduce((a, b) => a + b, 0);
+
+            const context = {
+                last7DaysTotal: demoLast7Total,
+                lastMonthTotal: 6200000,
+                thisMonthSpent: 3100000,
+                thisMonthProjected: 5850000,
+                monthDiffPercent: -6
+            };
+
+            const forecastResult = await AiService.forecastExpenses(demoSeries, context);
             return res.json({
                 success: true,
                 has_enough_data: true,
                 is_demo_data: true,
                 data: {
-                    historical_recent_days: demoSeries.slice(-7),
+                    historical_recent_days: demoRecent7,
                     ...forecastResult
                 }
             });
@@ -146,12 +163,33 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
 
         // Gom các giao dịch THẬT của người dùng theo ngày
         const mapByDate = {};
+        let lastMonthTotal = 0;
+        let thisMonthSpent = 0;
+
         txs.forEach(t => {
             const d = t.transaction_date;
-            mapByDate[d] = (mapByDate[d] || 0) + parseFloat(t.amount || 0);
+            const amt = parseFloat(t.amount || 0);
+            mapByDate[d] = (mapByDate[d] || 0) + amt;
+
+            if (d >= startOfLastMonthStr && d <= endOfLastMonthStr) {
+                lastMonthTotal += amt;
+            }
+            if (d >= startOfThisMonthStr) {
+                thisMonthSpent += amt;
+            }
         });
 
-        // Tạo mảng chuỗi thời gian 30 ngày từ dữ liệu thật của tài khoản
+        // Tính toán dự phóng tháng này
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const daysPassed = Math.max(1, now.getDate());
+        const remainingDays = Math.max(0, daysInMonth - daysPassed);
+        const dailyRateThisMonth = thisMonthSpent / daysPassed;
+        const thisMonthProjected = Math.round(thisMonthSpent + (dailyRateThisMonth * remainingDays));
+        const monthDiffPercent = lastMonthTotal > 0
+            ? Math.round(((thisMonthProjected - lastMonthTotal) / lastMonthTotal) * 100)
+            : 0;
+
+        // Tạo mảng chuỗi thời gian 30 ngày gần nhất
         const dailyExpenses = [];
         for (let i = 29; i >= 0; i--) {
             const d = new Date();
@@ -160,15 +198,27 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
             dailyExpenses.push(mapByDate[k] || 0);
         }
 
-        // Gọi AI Service với chuỗi chi tiêu THỰC TẾ của người dùng này
-        const forecastResult = await AiService.forecastExpenses(dailyExpenses);
+        // 7 ngày vừa qua thực tế
+        const recent7Days = dailyExpenses.slice(-7);
+        const last7DaysTotal = recent7Days.reduce((a, b) => a + b, 0);
+
+        const context = {
+            last7DaysTotal,
+            lastMonthTotal,
+            thisMonthSpent,
+            thisMonthProjected,
+            monthDiffPercent
+        };
+
+        // Gọi AI Service với chuỗi chi tiêu THỰC TẾ và bối cảnh Tuần/Tháng
+        const forecastResult = await AiService.forecastExpenses(dailyExpenses, context);
 
         return res.json({
             success: true,
             has_enough_data: true,
             is_demo_data: false,
             data: {
-                historical_recent_days: dailyExpenses.slice(-7),
+                historical_recent_days: recent7Days,
                 ...forecastResult
             }
         });
