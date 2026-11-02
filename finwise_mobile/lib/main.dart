@@ -8,6 +8,7 @@ import 'screens/dashboard_screen.dart';
 import 'screens/transactions_screen.dart';
 import 'screens/ai_forecast_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
+import 'screens/export_excel_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -436,6 +437,31 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
               ),
               child: Column(
                 children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                      backgroundColor: Color(0xFFECFDF5),
+                      child: Icon(Icons.table_view_rounded, color: Color(0xFF10B981), size: 20),
+                    ),
+                    title: const Text('Xuất Báo Cáo Excel (.xlsx)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Tùy chọn thời gian, danh mục và sao kê Excel', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text('XLSX', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                    ),
+                    onTap: () async {
+                      final summary = await ApiService().getSummary();
+                      final balance = (summary['total_balance'] as num?)?.toDouble() ?? 0.0;
+                      if (mounted) {
+                        ExportExcelDialog.show(context, currentBalance: balance);
+                      }
+                    },
+                  ),
+                  const Divider(height: 1),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const CircleAvatar(
