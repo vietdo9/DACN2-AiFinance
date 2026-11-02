@@ -1036,6 +1036,8 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     switch (level) {
       case 'CAO':
         return const Color(0xFFEF4444);
+      case 'CHU_KY_DAU_THANG':
+        return const Color(0xFF6366F1); // Màu tím chàm thông minh cho chu kỳ định kỳ
       case 'TRUNG_BINH':
         return const Color(0xFFF59E0B);
       case 'AN_TOAN':
@@ -1048,6 +1050,8 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     switch (level) {
       case 'CAO':
         return 'CẦN THẮT CHẶT';
+      case 'CHU_KY_DAU_THANG':
+        return 'CHU KỲ ĐẦU THÁNG';
       case 'TRUNG_BINH':
         return 'CẦN LƯU Ý';
       case 'AN_TOAN':

@@ -329,11 +329,25 @@ router.get('/user-forecast', verifyToken, async (req, res) => {
         const todayDay = new Date().getDate();
         const isEarlyMonth = todayDay <= 7;
 
+        // Kiểm tra xem tuần này đã phát sinh giao dịch tiền trọ / nhà ở chưa
+        const paidRentThisWeek = allTransactions.some(t => {
+            const d = t.transaction_date ? t.transaction_date.split('T')[0] : '';
+            if (d < startOfThisWeekStr || d > endOfThisWeekStr) return false;
+            if (t.type !== 'expense') return false;
+            const code = t.category_code || '';
+            const note = (t.note || '').toLowerCase();
+            return code === 'NHA_O' || note.includes('tien tro') || note.includes('tiền trọ') || note.includes('tien phong') || note.includes('tiền phòng');
+        });
+
         let warningLevel = 'AN_TOAN';
         let message = '';
-        if (weekDiffPercent > 25) {
+
+        if (paidRentThisWeek) {
+            warningLevel = 'AN_TOAN';
+            message = 'Bạn đã hoàn tất khoản chi tiền phòng trọ đầu tháng. Các ngày tiếp theo trong tuần dự kiến trở lại quỹ đạo chi tiêu sinh hoạt bình thường.';
+        } else if (weekDiffPercent > 20) {
             if (isEarlyMonth) {
-                warningLevel = 'TRUNG_BINH';
+                warningLevel = 'CHU_KY_DAU_THANG';
                 message = `Chi tiêu tuần này dự kiến tăng +${weekDiffPercent}% do rơi vào chu kỳ đầu tháng (thường gồm tiền phòng trọ, hóa đơn cố định). Dòng tiền vẫn đang đi đúng kế hoạch định kỳ của bạn.`;
             } else {
                 warningLevel = 'CAO';
