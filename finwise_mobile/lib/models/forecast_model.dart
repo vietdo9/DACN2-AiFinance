@@ -1,5 +1,35 @@
+class WeekDayForecast {
+  final String date;
+  final String dayName;
+  final String dayLabel;
+  final bool isPastOrToday;
+  final double amount;
+  final bool isPredicted;
+
+  WeekDayForecast({
+    required this.date,
+    required this.dayName,
+    required this.dayLabel,
+    required this.isPastOrToday,
+    required this.amount,
+    required this.isPredicted,
+  });
+
+  factory WeekDayForecast.fromJson(Map<String, dynamic> json) {
+    return WeekDayForecast(
+      date: json['date'] ?? '',
+      dayName: json['day_name'] ?? '',
+      dayLabel: json['day_label'] ?? '',
+      isPastOrToday: json['is_past_or_today'] == true,
+      amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+      isPredicted: json['is_predicted'] == true,
+    );
+  }
+}
+
 class ForecastModel {
   final List<double> predictedNext7Days;
+  final List<WeekDayForecast> weekDaysDetail;
   final double totalForecast;
   final double averageDailyForecast;
   final String warningLevel; // 'AN_TOAN', 'TRUNG_BINH', 'CAO'
@@ -12,15 +42,20 @@ class ForecastModel {
   final double last7DaysTotal;
   final double weekDiffAmount;
   final int weekDiffPercent;
+  final String thisWeekLabel;
+  final String lastWeekLabel;
 
   // So sánh theo Tháng
   final double thisMonthSpent;
   final double thisMonthProjected;
   final double lastMonthTotal;
   final int monthDiffPercent;
+  final String thisMonthLabel;
+  final String lastMonthLabel;
 
   ForecastModel({
     required this.predictedNext7Days,
+    List<WeekDayForecast>? weekDaysDetail,
     required this.totalForecast,
     required this.averageDailyForecast,
     required this.warningLevel,
@@ -31,15 +66,21 @@ class ForecastModel {
     this.last7DaysTotal = 0.0,
     this.weekDiffAmount = 0.0,
     this.weekDiffPercent = 0,
+    this.thisWeekLabel = 'Tuần này',
+    this.lastWeekLabel = 'Tuần trước',
     this.thisMonthSpent = 0.0,
     this.thisMonthProjected = 0.0,
     this.lastMonthTotal = 0.0,
     this.monthDiffPercent = 0,
-  }) : historicalRecentDays = historicalRecentDays ?? [];
+    this.thisMonthLabel = 'Tháng này',
+    this.lastMonthLabel = 'Tháng trước',
+  })  : historicalRecentDays = historicalRecentDays ?? [],
+        weekDaysDetail = weekDaysDetail ?? [];
 
   factory ForecastModel.empty({String? message}) {
     return ForecastModel(
       predictedNext7Days: [],
+      weekDaysDetail: [],
       totalForecast: 0.0,
       averageDailyForecast: 0.0,
       warningLevel: 'CHUA_CO_DU_LIEU',
@@ -50,10 +91,14 @@ class ForecastModel {
       last7DaysTotal: 0.0,
       weekDiffAmount: 0.0,
       weekDiffPercent: 0,
+      thisWeekLabel: 'Tuần này',
+      lastWeekLabel: 'Tuần trước',
       thisMonthSpent: 0.0,
       thisMonthProjected: 0.0,
       lastMonthTotal: 0.0,
       monthDiffPercent: 0,
+      thisMonthLabel: 'Tháng này',
+      lastMonthLabel: 'Tháng trước',
     );
   }
 
@@ -64,6 +109,10 @@ class ForecastModel {
         [];
     final hist = (json['historical_recent_days'] as List?)
             ?.map((e) => (e as num).toDouble())
+            .toList() ??
+        [];
+    final weekDetail = (json['week_days_detail'] as List?)
+            ?.map((e) => WeekDayForecast.fromJson(e))
             .toList() ??
         [];
 
@@ -79,6 +128,7 @@ class ForecastModel {
 
     return ForecastModel(
       predictedNext7Days: list,
+      weekDaysDetail: weekDetail,
       totalForecast: totalForecast,
       averageDailyForecast: (json['average_daily_forecast'] as num?)?.toDouble() ?? 0.0,
       warningLevel: json['warning_level'] ?? 'AN_TOAN',
@@ -89,10 +139,14 @@ class ForecastModel {
       last7DaysTotal: last7DaysTotal,
       weekDiffAmount: weekDiffAmount,
       weekDiffPercent: weekDiffPercent,
+      thisWeekLabel: json['this_week_label'] ?? 'Tuần này',
+      lastWeekLabel: json['last_week_label'] ?? 'Tuần trước',
       thisMonthSpent: (json['this_month_spent'] as num?)?.toDouble() ?? 0.0,
       thisMonthProjected: (json['this_month_projected'] as num?)?.toDouble() ?? 0.0,
       lastMonthTotal: (json['last_month_total'] as num?)?.toDouble() ?? 0.0,
       monthDiffPercent: (json['month_diff_percent'] as num?)?.toInt() ?? 0,
+      thisMonthLabel: json['this_month_label'] ?? 'Tháng này',
+      lastMonthLabel: json['last_month_label'] ?? 'Tháng trước',
     );
   }
 }

@@ -168,7 +168,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Theo Tuần (7 Ngày Tới)',
+                      'Theo Tuần',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: _selectedViewTab == 0 ? FontWeight.bold : FontWeight.w500,
@@ -203,7 +203,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Theo Tháng (Tháng Này)',
+                      'Theo Tháng',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: _selectedViewTab == 1 ? FontWeight.bold : FontWeight.w500,
@@ -277,9 +277,9 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
 
         const SizedBox(height: 20),
 
-        // 3. Biểu Đồ Xu Hướng 7 Ngày Tiếp Theo
+        // 3. Biểu Đồ Chi Tiêu Tuần Này
         const Text(
-          'Biểu Đồ Dự Báo 7 Ngày Tiếp Theo',
+          'Biểu Đồ Chi Tiêu Tuần Này',
           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
         ),
         const SizedBox(height: 12),
@@ -307,10 +307,36 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
+                      reservedSize: 34,
                       interval: 1,
                       getTitlesWidget: (val, meta) {
                         final idx = val.toInt();
-                        if (idx >= 0 && idx < 7) {
+                        if (forecast.weekDaysDetail.isNotEmpty && idx >= 0 && idx < forecast.weekDaysDetail.length) {
+                          final item = forecast.weekDaysDetail[idx];
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  item.dayName,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: item.isPastOrToday ? FontWeight.bold : FontWeight.w500,
+                                    color: item.isPastOrToday ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+                                  ),
+                                ),
+                                Text(
+                                  item.dayLabel,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: item.isPastOrToday ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        } else if (idx >= 0 && idx < 7) {
                           final date = DateTime.now().add(Duration(days: idx + 1));
                           final dayStr = DateFormat('dd/MM').format(date);
                           return Padding(
@@ -336,9 +362,13 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                 borderData: FlBorderData(show: false),
                 lineBarsData: [
                   LineChartBarData(
-                    spots: List.generate(forecast.predictedNext7Days.length, (i) {
-                      return FlSpot(i.toDouble(), forecast.predictedNext7Days[i]);
-                    }),
+                    spots: forecast.weekDaysDetail.isNotEmpty
+                        ? List.generate(forecast.weekDaysDetail.length, (i) {
+                            return FlSpot(i.toDouble(), forecast.weekDaysDetail[i].amount);
+                          })
+                        : List.generate(forecast.predictedNext7Days.length, (i) {
+                            return FlSpot(i.toDouble(), forecast.predictedNext7Days[i]);
+                          }),
                     isCurved: true,
                     curveSmoothness: 0.35,
                     color: const Color(0xFF4F46E5),
@@ -346,12 +376,17 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                     isStrokeCapRound: true,
                     dotData: FlDotData(
                       show: true,
-                      getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
-                        radius: 4,
-                        color: Colors.white,
-                        strokeWidth: 2.5,
-                        strokeColor: const Color(0xFF4F46E5),
-                      ),
+                      getDotPainter: (spot, percent, barData, index) {
+                        final isPast = (forecast.weekDaysDetail.isNotEmpty && index < forecast.weekDaysDetail.length)
+                            ? forecast.weekDaysDetail[index].isPastOrToday
+                            : false;
+                        return FlDotCirclePainter(
+                          radius: 4,
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                          strokeColor: isPast ? const Color(0xFF10B981) : const Color(0xFF4F46E5),
+                        );
+                      },
                     ),
                     belowBarData: BarAreaData(
                       show: true,
@@ -373,9 +408,9 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
 
         const SizedBox(height: 20),
 
-        // 4. Danh sách chi tiết từng ngày trong 7 ngày tới
+        // 4. Danh sách chi tiết từng ngày trong tuần
         const Text(
-          'Kế Hoạch Chi Tiết 7 Ngày Tới',
+          'Chi Tiết Từng Ngày Trong Tuần',
           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
         ),
         const SizedBox(height: 10),
@@ -384,7 +419,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     );
   }
 
-  // Thẻ So Sánh Tuần (Tuần Trước vs Tuần Tới)
+  // Thẻ So Sánh Tuần (Tuần Trước vs Tuần Này)
   Widget _buildWeekComparisonCard(ForecastModel forecast) {
     final diffPct = forecast.weekDiffPercent;
     final isIncrease = diffPct > 0;
@@ -404,9 +439,12 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
       badgeIcon = Icons.trending_down;
     } else {
       badgeColor = const Color(0xFF4F46E5);
-      badgeText = 'Ổn định (~0%)';
+      badgeText = 'Ổn định';
       badgeIcon = Icons.trending_flat;
     }
+
+    final lastWeekSub = forecast.lastWeekLabel.isNotEmpty ? forecast.lastWeekLabel : '';
+    final thisWeekSub = forecast.thisWeekLabel.isNotEmpty ? forecast.thisWeekLabel : '';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -427,8 +465,12 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('7 ngày vừa qua (Thực tế)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                    const SizedBox(height: 4),
+                    const Text('Tuần trước', style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600)),
+                    if (lastWeekSub.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(lastWeekSub, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5)),
+                    ],
+                    const SizedBox(height: 5),
                     Text(
                       currencyFormat.format(forecast.last7DaysTotal),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF334155)),
@@ -459,13 +501,17 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
 
               const SizedBox(width: 8),
 
-              // Cột Tuần tới
+              // Cột Tuần này
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text('7 ngày tới (Dự kiến)', style: TextStyle(color: Color(0xFF64748B), fontSize: 11)),
-                    const SizedBox(height: 4),
+                    const Text('Tuần này', style: TextStyle(color: Color(0xFF4F46E5), fontSize: 12, fontWeight: FontWeight.w600)),
+                    if (thisWeekSub.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(thisWeekSub, style: const TextStyle(color: Color(0xFF818CF8), fontSize: 10.5)),
+                    ],
+                    const SizedBox(height: 5),
                     Text(
                       currencyFormat.format(forecast.totalForecast),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4F46E5)),
@@ -479,7 +525,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Mức chi tiêu trung bình / ngày:', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+              const Text('Mức chi trung bình / ngày:', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
               Text(
                 '~ ${currencyFormat.format(forecast.averageDailyForecast)} / ngày',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
@@ -491,8 +537,97 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     );
   }
 
-  // Danh sách chi tiết 7 ngày
+  // Danh sách chi tiết từng ngày trong tuần
   Widget _buildDailyList(ForecastModel forecast) {
+    if (forecast.weekDaysDetail.isNotEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF1F5F9)),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Column(
+          children: List.generate(forecast.weekDaysDetail.length, (i) {
+            final day = forecast.weekDaysDetail[i];
+            final isPastOrToday = day.isPastOrToday;
+            final isWeekend = day.dayName == 'T7' || day.dayName == 'CN';
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                border: i < forecast.weekDaysDetail.length - 1
+                    ? const Border(bottom: BorderSide(color: Color(0xFFF8FAFC), width: 1.5))
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isPastOrToday
+                          ? const Color(0xFFECFDF5)
+                          : (isWeekend ? const Color(0xFFFEF3C7) : const Color(0xFFEEF2FF)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      day.dayName,
+                      style: TextStyle(
+                        color: isPastOrToday
+                            ? const Color(0xFF059669)
+                            : (isWeekend ? const Color(0xFFD97706) : const Color(0xFF4F46E5)),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          day.date,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isWeekend ? FontWeight.bold : FontWeight.w500,
+                            color: const Color(0xFF334155),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isPastOrToday ? 'Đã chi thực tế' : 'Dự kiến AI',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w500,
+                            color: isPastOrToday ? const Color(0xFF10B981) : const Color(0xFF6366F1),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    currencyFormat.format(day.amount),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: isPastOrToday
+                          ? const Color(0xFF0F172A)
+                          : (isWeekend ? const Color(0xFFD97706) : const Color(0xFF4F46E5)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ),
+      );
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
