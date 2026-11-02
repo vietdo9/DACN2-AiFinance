@@ -149,7 +149,28 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
               // 3. Phân bổ chi tiêu theo Danh mục (Pie Chart)
               if (categoryBreakdown.isNotEmpty) ...[
-                const Text('Phân Bổ Chi Tiêu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Phân Bổ Chi Tiêu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2FF),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFC7D2FE)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.calendar_today_outlined, size: 12, color: Color(0xFF4F46E5)),
+                          SizedBox(width: 4),
+                          Text('Tháng này', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF4F46E5))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 _buildCategoryChart(categoryBreakdown),
                 const SizedBox(height: 24),
@@ -336,15 +357,63 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     );
   }
 
-  Widget _buildCategoryChart(List<dynamic> categories) {
-    final colors = [
+  Color _resolveCategoryColor(dynamic cat, int fallbackIndex) {
+    if (cat is Map) {
+      // 1. Lấy từ category_code để đảm bảo đồng nhất tuyệt đối với màu khi nhập/quản lý giao dịch
+      final code = cat['category_code']?.toString();
+      switch (code) {
+        case 'AN_UONG':
+          return const Color(0xFFF59E0B); // Cam
+        case 'DI_LAI':
+          return const Color(0xFF3B82F6); // Xanh dương
+        case 'MUA_SAM':
+          return const Color(0xFFEC4899); // Hồng cánh sen
+        case 'HOA_DON':
+          return const Color(0xFF8B5CF6); // Tím
+        case 'NHA_O':
+          return const Color(0xFF10B981); // Xanh lá
+        case 'GIAI_TRI':
+          return const Color(0xFF6366F1); // Indigo
+        case 'SUC_KHOE':
+          return const Color(0xFFEF4444); // Đỏ
+        case 'HOC_TAP':
+          return const Color(0xFF14B8A6); // Ngọc lam
+        case 'TIET_KIEM_DAU_TU':
+          return const Color(0xFF06B6D4); // Cyan
+        case 'THU_NHAP':
+          return const Color(0xFF22C55E); // Xanh lá sáng
+        case 'TIEN_CHUYEN_DEN':
+          return const Color(0xFF10B981);
+        case 'THU_KHAC':
+          return const Color(0xFF14B8A6);
+      }
+
+      // 2. Nếu không có mã khớp, lấy mã màu hex từ server trả về
+      final hex = cat['color']?.toString();
+      if (hex != null && hex.isNotEmpty) {
+        try {
+          final clean = hex.replaceFirst('#', '');
+          if (clean.length == 6) {
+            return Color(int.parse('FF$clean', radix: 16));
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 3. Fallback danh sách màu hài hòa
+    final fallbackColors = [
       const Color(0xFFF59E0B),
+      const Color(0xFFEC4899),
       const Color(0xFF3B82F6),
       const Color(0xFF8B5CF6),
+      const Color(0xFF10B981),
       const Color(0xFF6366F1),
-      const Color(0xFFEC4899),
+      const Color(0xFFEF4444),
     ];
+    return fallbackColors[fallbackIndex % fallbackColors.length];
+  }
 
+  Widget _buildCategoryChart(List<dynamic> categories) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -365,7 +434,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 sections: List.generate(categories.length, (i) {
                   final cat = categories[i];
                   final pct = (cat['percentage'] as num?)?.toDouble() ?? 10.0;
-                  final color = colors[i % colors.length];
+                  final color = _resolveCategoryColor(cat, i);
                   return PieChartSectionData(
                     color: color,
                     value: pct,
@@ -383,7 +452,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             runSpacing: 8,
             children: List.generate(categories.length, (i) {
               final cat = categories[i];
-              final color = colors[i % colors.length];
+              final color = _resolveCategoryColor(cat, i);
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
