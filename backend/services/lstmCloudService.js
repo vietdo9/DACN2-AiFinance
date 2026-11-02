@@ -204,21 +204,29 @@ class LstmCloudService {
         const thisMonthProjected = context.thisMonthProjected || 0;
         const monthDiffPercent = context.monthDiffPercent || 0;
 
+        const todayDay = new Date().getDate();
+        const isEarlyMonth = todayDay <= 7;
+
         let warningLevel = 'AN_TOAN';
         let message = '';
 
         if (weekPercent > 25) {
-            warningLevel = 'CAO';
-            message = `Cảnh báo: Chi tiêu 7 ngày tới dự kiến tăng ${weekPercent}% so với tuần trước. Bạn nên lưu ý các khoản chi lớn và mua sắm!`;
+            if (isEarlyMonth) {
+                warningLevel = 'TRUNG_BINH';
+                message = `Chi tiêu tuần này dự kiến tăng +${weekPercent}% do rơi vào chu kỳ đầu tháng (thường gồm tiền phòng trọ, hóa đơn cố định). Dòng tiền vẫn đang đi đúng kế hoạch định kỳ của bạn.`;
+            } else {
+                warningLevel = 'CAO';
+                message = `Cảnh báo: Chi tiêu tuần này dự kiến tăng ${weekPercent}% so với tuần trước. Bạn nên lưu ý các khoản chi lớn và mua sắm!`;
+            }
         } else if (weekPercent > 10) {
             warningLevel = 'TRUNG_BINH';
             message = `Chi tiêu tuần tới có xu hướng tăng nhẹ (+${weekPercent}%) so với tuần vừa qua. Ngân sách vẫn đang được duy trì ổn định.`;
         } else if (weekPercent < -5) {
             warningLevel = 'AN_TOAN';
-            message = `Xu hướng rất tích cực: 7 ngày tới dự kiến tiết kiệm hơn ${Math.abs(weekPercent)}% so với tuần vừa qua. Tiếp tục phát huy nhé!`;
+            message = `Xu hướng rất tích cực: Tuần này dự kiến tiết kiệm hơn ${Math.abs(weekPercent)}% so với tuần vừa qua. Tiếp tục phát huy nhé!`;
         } else {
             warningLevel = 'AN_TOAN';
-            message = `Dòng tiền 7 ngày tới duy trì mức chi tiêu cân bằng và ổn định tương đương với tuần trước.`;
+            message = `Dòng tiền tuần này duy trì mức chi tiêu cân bằng và ổn định tương đương với tuần trước.`;
         }
 
         return {
