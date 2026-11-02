@@ -201,19 +201,43 @@ class _ExportExcelDialogState extends State<ExportExcelDialog> {
               'Đã tạo báo cáo gồm $count giao dịch:',
               style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(8),
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
-              child: Text(
-                fileName,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF4F46E5)),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.table_view_rounded, size: 16, color: Color(0xFF10B981)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          fileName,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    filePath.contains('/Download')
+                        ? '📁 Đã lưu vào: Thư mục Tải xuống (Download)'
+                        : '📁 Đã lưu tại: $filePath',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
             // Nút Mở File
             SizedBox(

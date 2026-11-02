@@ -316,10 +316,22 @@ class ExcelExportService {
         throw Exception('Không thể mã hóa file Excel');
       }
 
-      // 4. Lưu ra thư mục lưu trữ
+      // 4. Lưu ra thư mục lưu trữ (Ưu tiên thư mục Download công khai trên Android)
       Directory? dir;
       if (Platform.isAndroid) {
-        dir = await getExternalStorageDirectory();
+        final downloadDir = Directory('/storage/emulated/0/Download');
+        if (downloadDir.existsSync()) {
+          try {
+            final testFile = File('${downloadDir.path}/.test_finwise');
+            testFile.writeAsStringSync('ok');
+            testFile.deleteSync();
+            dir = downloadDir;
+          } catch (_) {
+            dir = await getExternalStorageDirectory();
+          }
+        } else {
+          dir = await getExternalStorageDirectory();
+        }
       }
       dir ??= await getApplicationDocumentsDirectory();
 
