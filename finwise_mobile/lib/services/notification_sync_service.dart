@@ -247,7 +247,7 @@ class NotificationSyncService {
             } catch (_) {}
           }
         } else {
-          finalCategory = 'THU_NHAP';
+          finalCategory = (parsedTx['categoryCode'] as String?) ?? 'TIEN_CHUYEN_DEN';
         }
 
         // 6. Tự động lưu giao dịch vào FinWise qua API (kèm đúng ngày phát hiện)
@@ -679,20 +679,81 @@ class NotificationSyncService {
       };
     }
 
-    // MẪU ĐẶC BIỆT 3: NHẬN TIỀN VCB `... chuyen tien#SP#...`
-    if (lower.contains('chuyen tien#sp#') || lower.contains('chuyển tiền#sp#')) {
-      final senderMatch = RegExp(r'^(.+?)\s+(?:chuyen tien|chuyển tiền)#SP#', caseSensitive: false).firstMatch(rawText);
-      sender = senderMatch != null ? senderMatch.group(1)!.trim() : '';
+    // MẪU ĐẶC BIỆT 3: NHẬN TIỀN CHUYỂN KHOẢN (VCB VÀ CÁC NGÂN HÀNG CÓ TỪ KHÓA REF / #SP# / CHUYEN TIEN)
+    if (type == 'income' &&
+        (lower.contains('ref') ||
+            lower.contains('#sp#') ||
+            lower.contains('chuyen tien') ||
+            lower.contains('chuyển tiền') ||
+            lower.contains('chuyen khoan') ||
+            lower.contains('chuyển khoản'))) {
+      // 1. Tìm phần nội dung sau từ khóa Ref (hoặc nd / nội dung)
+      final refMatch = RegExp(r'\b(?:ref|nd|nội dung|noi dung)[:\s]+(.+)$', caseSensitive: false, multiLine: true).firstMatch(rawText);
+      if (refMatch != null) {
+        var refContent = refMatch.group(1)!.trim();
+        // Cắt bỏ phần mã hệ thống #SP#... hoặc #...#
+        refContent = refContent.replaceAll(RegExp(r'#SP#.*$', caseSensitive: false), '');
+        refContent = refContent.replaceAll(RegExp(r'#[A-Za-z0-9_]+.*$'), '').trim();
+        // Cắt bỏ mã giao dịch số hoặc prefix hệ thống đứng trước tên người gửi (ví dụ: 123456 NGUYEN VAN A)
+        refContent = refContent.replaceAll(RegExp(r'^\d{6,}[\.\s]+'), '');
+        refContent = refContent.replaceAll(RegExp(r'^(?:MBVCB|IBFT|FT\d+|VCB)[\.\s]+', caseSensitive: false), '').trim();
+
+        // Tách Tên Người Gửi và Nội dung giao dịch (hành động chuyển tiền)
+        final actionKeywordRegex = RegExp(
+          r'^(?:chuyen tien|chuyển tiền|chuyen khoan|chuyển khoản|tra tien|trả tiền|dong tien|đóng tiền|gui tien|gửi tiền|ung ho|ủng hộ|thanh toan|thanh toán|ck\b|ibft\b)',
+          caseSensitive: false,
+        );
+        final actionMatch = RegExp(
+          r'^([A-ZÀ-Ỹa-z\s]{2,40}?)[\.\s]+(chuyen tien|chuyển tiền|chuyen khoan|chuyển khoản|tra tien|trả tiền|dong tien|đóng tiền|gui tien|gửi tiền|ung ho|ủng hộ|thanh toan|thanh toán|ck\b|ibft\b)(.*)$',
+          caseSensitive: false,
+        ).firstMatch(refContent);
+
+        if (actionMatch != null) {
+          sender = actionMatch.group(1)!.trim();
+          final action = actionMatch.group(2)!.trim();
+          final extra = actionMatch.group(3)!.trim();
+          transferContent = (action + (extra.isNotEmpty ? ' $extra' : '')).trim();
+        } else if (actionKeywordRegex.hasMatch(refContent)) {
+          sender = '';
+          transferContent = refContent.trim();
+        } else {
+          // Toàn bộ refContent là tên người gửi
+          sender = refContent.trim();
+          transferContent = 'Nhận tiền chuyển khoản';
+        }
+      } else {
+        // Trường hợp không có chữ "Ref", nhưng có cú pháp "... [TÊN] chuyen tien#SP#..."
+        final spMatch = RegExp(
+          r'(?:ref|nd|nội dung|noi dung)?[:\s]*([A-ZÀ-Ỹa-z\s]{2,40}?)[\.\s]+(?:chuyen tien|chuyển tiền)#SP#',
+          caseSensitive: false,
+        ).firstMatch(rawText);
+        if (spMatch != null) {
+          sender = spMatch.group(1)!.replaceAll(RegExp(r'^(?:ref|nd)[:\s]+', caseSensitive: false), '').trim();
+          transferContent = 'chuyen tien';
+        }
+      }
+
+      // Làm sạch dấu chấm, phẩy thừa ở cuối
+      sender = sender.replaceAll(RegExp(r'[\.\,\:\;\-]+$'), '').trim();
+      transferContent = transferContent.replaceAll(RegExp(r'[\.\,\:\;\-]+$'), '').trim();
+
       counterparty = sender;
+      final isDefaultRemark = transferContent.isEmpty ||
+          RegExp(r'^(chuyen tien|chuyển tiền|chuyen khoan|chuyển khoản|ck|nhận tiền chuyển khoản)$', caseSensitive: false).hasMatch(transferContent);
+
+      final note = (transferContent.isNotEmpty && !isDefaultRemark)
+          ? (sender.isNotEmpty ? '$transferContent (Từ: $sender)' : transferContent)
+          : (sender.isNotEmpty ? 'Nhận tiền từ $sender' : 'Nhận tiền chuyển khoản');
+
       return {
         'amount': detectedAmount,
         'type': 'income',
         'sender': sender,
         'counterparty': counterparty,
-        'transferContent': 'Nhận tiền chuyển khoản',
-        'note': sender.isNotEmpty ? 'Nhận tiền từ $sender' : 'Nhận tiền chuyển khoản',
-        'categoryCode': 'THU_NHAP',
-        'source': 'Vietcombank',
+        'transferContent': transferContent,
+        'note': note,
+        'categoryCode': 'TIEN_CHUYEN_DEN',
+        'source': source == 'Ngân hàng' ? 'Vietcombank' : source,
         'date': detectedDate,
         'hour': detectedHour,
       };
