@@ -179,6 +179,11 @@ router.post('/', verifyToken, async (req, res) => {
         // Lưu vào bộ nhớ cá nhân hóa để học thói quen người dùng
         if (note && note.trim().length >= 2 && category_code) {
             localStore.saveUserCategoryRule(req.user.id, note, category_code);
+            // Học từ tên đối tác / người nhận / cửa hàng
+            const partyMatch = note.match(/(?:Đến|Từ|cho|từ|mua tại|tại)[:\s]+([^()]+)/i);
+            if (partyMatch && partyMatch[1].trim().length >= 3) {
+                localStore.saveUserCategoryRule(req.user.id, partyMatch[1].trim(), category_code);
+            }
         }
 
         const catInfo = DEFAULT_CATEGORIES.find(c => c.code === category_code) || {
@@ -456,6 +461,10 @@ router.put('/:id', verifyToken, async (req, res) => {
         // HỌC TỪ PHẢN HỒI: Lưu quy tắc ưu tiên cho người dùng nếu có ghi chú
         if (newNote && newNote.trim().length >= 2 && newCatCode) {
             localStore.saveUserCategoryRule(req.user.id, newNote, newCatCode);
+            const partyMatch = newNote.match(/(?:Đến|Từ|cho|từ|mua tại|tại)[:\s]+([^()]+)/i);
+            if (partyMatch && partyMatch[1].trim().length >= 3) {
+                localStore.saveUserCategoryRule(req.user.id, partyMatch[1].trim(), newCatCode);
+            }
         }
 
         return res.json({

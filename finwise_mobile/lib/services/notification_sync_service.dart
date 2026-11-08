@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
 /// Dịch vụ tự động bắt thông báo biến động số dư từ ShopeePay, MoMo, VNPAY, Ngân hàng
@@ -235,16 +236,25 @@ class NotificationSyncService {
         String finalCategory = 'THU_NHAP';
         if (parsedTx['type'] == 'expense') {
           finalCategory = parsedTx['categoryCode'] ?? 'AN_UONG';
-          if (finalCategory != 'SUC_KHOE') {
-            try {
-              final textForAi = (parsedTx['transferContent'] as String? ?? '').isNotEmpty
-                  ? parsedTx['transferContent'] as String
-                  : parsedTx['note'] as String;
-              final aiRes = await ApiService().classifyWithAi(textForAi);
-              if (aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
-                finalCategory = aiRes['category_code'];
-              }
-            } catch (_) {}
+          if (finalCategory != 'SUC_KHOE' && finalCategory != 'DI_LAI') {
+            // 1. Kiểm tra bộ nhớ người nhận quen thuộc trước (ví dụ cây xăng, quán ăn...)
+            final cp = (parsedTx['counterparty'] as String? ?? '').trim();
+            final rememberedCat = await getRememberedCategory(cp);
+            if (rememberedCat != null && rememberedCat.isNotEmpty) {
+              finalCategory = rememberedCat;
+              debugPrint('[NotificationSyncService] 🎯 Áp dụng danh mục nhớ sẵn cho "$cp": $finalCategory');
+            } else {
+              // 2. Nếu chưa từng chuyển cho người này, gọi PhoBERT AI phân loại
+              try {
+                final textForAi = (parsedTx['transferContent'] as String? ?? '').isNotEmpty
+                    ? parsedTx['transferContent'] as String
+                    : parsedTx['note'] as String;
+                final aiRes = await ApiService().classifyWithAi(textForAi);
+                if (aiRes != null && aiRes['category_code'] != null && aiRes['category_code'] != 'THU_NHAP') {
+                  finalCategory = aiRes['category_code'];
+                }
+              } catch (_) {}
+            }
           }
         } else {
           finalCategory = (parsedTx['categoryCode'] as String?) ?? 'TIEN_CHUYEN_DEN';
@@ -264,6 +274,12 @@ class NotificationSyncService {
         );
 
         if (success) {
+          // Lưu vào bộ nhớ người nhận quen thuộc để lần sau tự nhận diện
+          final cp = (parsedTx['counterparty'] as String? ?? '').trim();
+          if (cp.isNotEmpty && parsedTx['type'] == 'expense') {
+            await rememberRecipientCategory(cp, finalCategory);
+          }
+
           final amtStr = NumberFormat('#,###', 'vi_VN').format(parsedTx['amount']);
           final sign = parsedTx['type'] == 'income' ? '+' : '-';
           final msg = '⚡ Tự động ghi nhận: $sign$amtStrđ (${parsedTx['source']})';
@@ -277,6 +293,38 @@ class NotificationSyncService {
         debugPrint('[NotificationSyncService] Lỗi xử lý thông báo: $e\n$stack');
       }
     });
+  }
+
+  /// Lưu vào bộ nhớ cục bộ danh mục quen thuộc của từng người nhận / tài khoản thụ hưởng
+  static Future<void> rememberRecipientCategory(String recipient, String categoryCode) async {
+    final clean = recipient.trim().toLowerCase();
+    if (clean.length < 3 || categoryCode.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('rc_mem_$clean', categoryCode);
+      debugPrint('[NotificationSyncService] 🧠 Đã ghi nhớ người nhận "$clean" -> $categoryCode');
+    } catch (_) {}
+  }
+
+  /// Tra cứu danh mục đã từng ghi nhớ của một người nhận / tài khoản thụ hưởng
+  static Future<String?> getRememberedCategory(String recipient) async {
+    final clean = recipient.trim().toLowerCase();
+    if (clean.length < 3) return null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final exact = prefs.getString('rc_mem_$clean');
+      if (exact != null) return exact;
+
+      // Tìm kiếm tương đối nếu chuỗi tên có chứa nhau
+      final keys = prefs.getKeys().where((k) => k.startsWith('rc_mem_'));
+      for (final k in keys) {
+        final savedName = k.replaceFirst('rc_mem_', '');
+        if (clean.contains(savedName) || savedName.contains(clean)) {
+          return prefs.getString(k);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Ngừng lắng nghe
@@ -600,6 +648,10 @@ class NotificationSyncService {
         suggestedCategory = 'MUA_SAM';
       } else if (upperR.contains('BAKERY') || upperR.contains('COFFEE') || upperR.contains('TEA') || upperR.contains('CAFE') || upperR.contains('FOOD')) {
         suggestedCategory = 'AN_UONG';
+      } else if (upperR.contains('PETROLIMEX') || upperR.contains('PVOIL') || upperR.contains('COMECO') ||
+          upperR.contains('XANG DAU') || upperR.contains('XĂNG DẦU') || upperR.contains('DAU KHI') || upperR.contains('DẦU KHÍ') ||
+          upperR.contains('THUONG MAI DAU KHI') || upperR.contains('SFC') || upperR.contains('MIPEC') || upperR.contains('GASOLINE')) {
+        suggestedCategory = 'DI_LAI';
       }
 
       counterparty = cleanReceiver;
@@ -630,6 +682,11 @@ class NotificationSyncService {
           lowerContent.contains('redbull') || lowerContent.contains('cafe') ||
           lowerContent.contains('trà') || lowerContent.contains('tra')) {
         suggestedCategory = 'AN_UONG';
+      } else if (lowerContent.contains('xăng') || lowerContent.contains('xang') ||
+          lowerContent.contains('dầu') || lowerContent.contains('dau') ||
+          lowerContent.contains('gửi xe') || lowerContent.contains('gui xe') ||
+          lowerContent.contains('rửa xe') || lowerContent.contains('rua xe')) {
+        suggestedCategory = 'DI_LAI';
       }
 
       String note = '';
@@ -648,6 +705,8 @@ class NotificationSyncService {
         final isHospital = lowCp.contains('bệnh viện') || lowCp.contains('benh vien') ||
             lowCp.contains('phòng khám') || lowCp.contains('phong kham') ||
             lowCp.contains('y tế') || lowCp.contains('clinic') || lowCp.contains('hospital');
+        final isGas = lowCp.contains('petrolimex') || lowCp.contains('pvoil') || lowCp.contains('comeco') ||
+            lowCp.contains('xang') || lowCp.contains('xăng') || lowCp.contains('dau khi') || lowCp.contains('dầu khí');
         final isStore = [
           'bách hóa xanh', 'mart', 'bakery', 'coffee', 'tea', 'cafe', 'zalopay'
         ].any((w) => lowCp.contains(w));
@@ -660,6 +719,8 @@ class NotificationSyncService {
           note = 'Khám chữa bệnh $counterparty';
         } else if (isStore) {
           note = 'Mua hàng $counterparty';
+        } else if (isGas) {
+          note = 'Đổ xăng $counterparty';
         } else {
           note = 'Chuyển cho $counterparty';
         }
@@ -810,6 +871,10 @@ class NotificationSyncService {
         } else if (upperP.contains('BACH HOA XANH')) {
           rawParty = 'Bách Hóa Xanh';
           suggestedCategory = 'MUA_SAM';
+        } else if (upperP.contains('PETROLIMEX') || upperP.contains('PVOIL') || upperP.contains('COMECO') ||
+            upperP.contains('XANG DAU') || upperP.contains('XĂNG DẦU') || upperP.contains('DAU KHI') || upperP.contains('DẦU KHÍ') ||
+            upperP.contains('THUONG MAI DAU KHI') || upperP.contains('SFC') || upperP.contains('MIPEC') || upperP.contains('GASOLINE')) {
+          suggestedCategory = 'DI_LAI';
         }
         counterparty = rawParty;
       }

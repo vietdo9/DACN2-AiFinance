@@ -51,5 +51,28 @@ void main() {
       expect(res['sender'], 'LE THI MAI');
       expect(res['note'], 'Nhận tiền từ LE THI MAI');
     });
+    test('Test 5: VCB message outgoing gas transfer with tien xang', () {
+      const raw = 'Số dư TK VCB 1028078349 -50,000 VND lúc 08-11-2026 19:27:00. Số dư 2,326,405 VND. Ref MBVCB.123.tien xang. CT tu 1028078349 toi 0987654321 CHI NHANH CONG TY CO PHAN THUONG MA tai VCB';
+      final res = NotificationSyncService.parseBankText(raw);
+
+      expect(res, isNotNull);
+      expect(res!['amount'], 50000.0);
+      expect(res['type'], 'expense');
+      expect(res['categoryCode'], 'DI_LAI');
+      expect(res['counterparty'], 'CHI NHANH CONG TY CO PHAN THUONG MA');
+      expect(res['note'], 'tien xang (Đến: CHI NHANH CONG TY CO PHAN THUONG MA)');
+    });
+
+    test('Test 6: VCB message outgoing to gas station brand without content', () {
+      const raw = 'Số dư TK VCB 1028078349 -70,000 VND lúc 08-11-2026 19:30:00. Số dư 2,256,405 VND. Ref MBVCB.456. CT tu 1028078349 toi 0987654321 CAY XANG PETROLIMEX SO 1 tai VCB';
+      final res = NotificationSyncService.parseBankText(raw);
+
+      expect(res, isNotNull);
+      expect(res!['amount'], 70000.0);
+      expect(res['type'], 'expense');
+      expect(res['categoryCode'], 'DI_LAI');
+      expect(res['note'], 'Đổ xăng CAY XANG PETROLIMEX SO 1');
+    });
   });
 }
+
