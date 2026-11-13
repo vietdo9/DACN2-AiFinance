@@ -1,6 +1,9 @@
 # 🌟 ĐỒ ÁN CHUYÊN NGÀNH 2 (ĐACN2)
 ## HỆ SINH THÁI QUẢN LÝ TÀI CHÍNH CÁ NHÂN ĐA NỀN TẢNG TÍCH HỢP AI (FinWise)
 
+> [!IMPORTANT]
+> **Dành cho Developer tiếp nhận / phát triển tiếp dự án**: Vui lòng đọc tài liệu bàn giao kỹ thuật toàn diện tại **[PROJECT_HANDOVER.md](PROJECT_HANDOVER.md)** (Bao gồm hướng dẫn cài đặt từ con số 0, bản đồ thư mục, các cơ chế đặc thù, tài khoản test, xử lý lỗi và backlog phát triển).
+
 > **Tài liệu tổng quan dự án**: Ghi lại toàn bộ kiến trúc hệ thống, các phân hệ đã thực hiện, kết quả dữ liệu, mô hình AI và lộ trình phát triển. Dành cho người tiếp nhận dự án, cộng tác viên hoặc giảng viên chấm điểm đồ án.
 
 ---
