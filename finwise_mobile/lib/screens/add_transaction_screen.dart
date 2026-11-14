@@ -24,6 +24,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   bool _isLoadingCategories = true;
   bool _isClassifying = false;
   bool _isScanningBill = false;
+  bool _isSavingTransaction = false;
   String? _aiFeedbackMessage;
 
   @override
@@ -424,6 +425,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> _saveTransaction() async {
+    // Manual entry, OCR, bank SMS, and income share this save path.
+    // Set the guard before awaiting so rapid taps cannot issue parallel POSTs.
+    if (_isSavingTransaction) return;
+
     final amountText = _amountController.text.replaceAll(RegExp(r'[^0-9]'), '');
     final amount = double.tryParse(amountText);
 
@@ -434,49 +439,55 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
 
-    String finalCat = _selectedCategoryCode ?? (_type == 'income' ? 'THU_NHAP' : 'AN_UONG');
-    if (_type == 'income') {
-      final isIncomeCat = _categories.any((c) => c.code == finalCat && c.type == 'income');
-      if (!isIncomeCat) finalCat = 'THU_NHAP';
-    } else {
-      final isExpenseCat = _categories.any((c) => c.code == finalCat && c.type == 'expense');
-      if (!isExpenseCat) finalCat = 'AN_UONG';
-    }
-
-    final rawNote = _noteController.text.trim();
-    final counterparty = _counterpartyController.text.trim();
-    String finalNote = rawNote;
-    if (counterparty.isNotEmpty) {
-      if (rawNote.isNotEmpty) {
-        finalNote = _type == 'income'
-            ? '$rawNote (Từ: $counterparty)'
-            : '$rawNote (Đến: $counterparty)';
+    setState(() => _isSavingTransaction = true);
+    var saved = false;
+    try {
+      String finalCat = _selectedCategoryCode ?? (_type == 'income' ? 'THU_NHAP' : 'AN_UONG');
+      if (_type == 'income') {
+        final isIncomeCat = _categories.any((c) => c.code == finalCat && c.type == 'income');
+        if (!isIncomeCat) finalCat = 'THU_NHAP';
       } else {
-        finalNote = _type == 'income'
-            ? 'Nhận từ $counterparty'
-            : 'Chuyển cho $counterparty';
+        final isExpenseCat = _categories.any((c) => c.code == finalCat && c.type == 'expense');
+        if (!isExpenseCat) finalCat = 'AN_UONG';
       }
-    }
 
-    final success = await ApiService().createTransaction(
-      amount: amount,
-      note: finalNote,
-      type: _type,
-      categoryCode: finalCat,
-      transactionDate: DateFormat('yyyy-MM-dd').format(_selectedDate),
-    );
-
-    if (mounted) {
-      if (success) {
-        Navigator.pop(context, true);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Lỗi khi lưu giao dịch.')),
-        );
+      final rawNote = _noteController.text.trim();
+      final counterparty = _counterpartyController.text.trim();
+      String finalNote = rawNote;
+      if (counterparty.isNotEmpty) {
+        if (rawNote.isNotEmpty) {
+          finalNote = _type == 'income'
+              ? '$rawNote (Từ: $counterparty)'
+              : '$rawNote (Đến: $counterparty)';
+        } else {
+          finalNote = _type == 'income'
+              ? 'Nhận từ $counterparty'
+              : 'Chuyển cho $counterparty';
+        }
       }
+
+      final success = await ApiService().createTransaction(
+        amount: amount,
+        note: finalNote,
+        type: _type,
+        categoryCode: finalCat,
+        transactionDate: DateFormat('yyyy-MM-dd').format(_selectedDate),
+      );
+
+      if (mounted) {
+        if (success) {
+          saved = true;
+          Navigator.pop(context, true);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Lỗi khi lưu giao dịch.')),
+          );
+        }
+      }
+    } finally {
+      if (mounted && !saved) setState(() => _isSavingTransaction = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('dd/MM/yyyy');
@@ -930,8 +941,21 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   backgroundColor: const Color(0xFF4F46E5),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                onPressed: _saveTransaction,
-                child: const Text('Lưu Giao Dịch', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                onPressed: _isSavingTransaction || _isScanningBill ? null : _saveTransaction,
+                child: _isSavingTransaction
+                    ? const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                          ),
+                          SizedBox(width: 10),
+                          Text('Đang lưu...', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        ],
+                      )
+                    : const Text('Lưu Giao Dịch', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
