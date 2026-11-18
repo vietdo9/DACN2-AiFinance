@@ -430,7 +430,9 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
           const SizedBox(height: 10),
           _buildDailyList(forecast, upcoming: true),
           const SizedBox(height: 8),
-          Text('${forecast.engine}. Ngày ngoài phạm vi mô hình dùng mức chi trung bình 30 ngày.',
+          Text(forecast.engine.startsWith('LSTM')
+                  ? '${forecast.engine}. Ngày ngoài phạm vi mô hình dùng mức chi trung bình 30 ngày.'
+                  : forecast.engine,
               style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
         ],
       ],
@@ -909,7 +911,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Ước tính tháng cộng chi tiêu đã ghi nhận với mức chi trung bình 30 ngày cho các ngày còn lại.',
+                'Ước tính tháng cộng chi tiêu đã ghi nhận với mức chi trung bình từ lịch sử gần đây cho các ngày còn lại.',
                 style: TextStyle(fontSize: 12.5, color: Color(0xFF475569), height: 1.45),
               ),
             ],

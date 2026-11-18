@@ -1,6 +1,8 @@
 const DAY_MS = 86_400_000;
 const HISTORY_DAYS = 30;
-const MIN_ACTIVE_DAYS = 7;
+const MIN_HISTORY_DAYS = 7;
+const MIN_ACTIVE_DAYS = 2;
+const MODEL_ACTIVE_DAYS = 7;
 const calendar = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
 });
@@ -58,16 +60,20 @@ async function buildForecast(rows, period, predict, demo = false, firstRecordedD
     const windowStart = key(historyStart);
     const hasFullWindow = (firstRecordedDate && firstRecordedDate <= windowStart)
         || [...totals.keys()].some(date => date <= windowStart);
-    if (!hasFullWindow || activeDays < MIN_ACTIVE_DAYS) {
+    const firstActiveDay = history.findIndex(amount => amount > 0);
+    const observedDays = hasFullWindow ? HISTORY_DAYS
+        : firstActiveDay === -1 ? 0 : HISTORY_DAYS - firstActiveDay;
+    if (observedDays < MIN_HISTORY_DAYS || activeDays < MIN_ACTIVE_DAYS) {
         return {
             success: true, has_enough_data: false, data: null,
-            message: `Cần lịch sử chi tiêu trải dài ít nhất 30 ngày và có giao dịch trong ít nhất 7 ngày của kỳ đó. Hiện có ${activeDays}/7 ngày có chi tiêu trong 30 ngày đã qua.`
+            message: `Cần lịch sử chi tiêu trải dài ít nhất 7 ngày, có khoản chi trong ít nhất 2 ngày đã qua. Hiện có ${activeDays} ngày có khoản chi trong 30 ngày đã qua.`
         };
     }
 
-    const dailyAverage = sum(history) / HISTORY_DAYS;
+    const dailyAverage = sum(history) / observedDays;
+    const limitedHistory = !hasFullWindow || activeDays < MODEL_ACTIVE_DAYS;
     let model;
-    if (!demo) {
+    if (!demo && !limitedHistory) {
         try {
             model = await predict(history);
         } catch (_) {
@@ -107,18 +113,21 @@ async function buildForecast(rows, period, predict, demo = false, firstRecordedD
     const monthSpent = sum([...totals].filter(([date]) => date >= key(monthStart)).map(([, amount]) => amount));
     const monthProjected = Math.round(monthSpent + dailyAverage * ((monthEnd - today) / DAY_MS));
     const monthPercent = lastMonthTotal > 0 ? Math.round((monthProjected - lastMonthTotal) / lastMonthTotal * 100) : null;
+    const comparison = weekPercent === null
+        ? 'Tuần trước không có khoản chi được ghi nhận để so sánh.'
+        : `Chi tiêu tuần này ước tính ${weekPercent === 0 ? 'bằng' : weekPercent > 0 ? `cao hơn ${weekPercent}% so với` : `thấp hơn ${Math.abs(weekPercent)}% so với`} tuần trước.`;
 
     return {
         success: true, has_enough_data: true, is_demo_data: demo,
         data: {
-            as_of: latest, active_days: activeDays,
+            as_of: latest, active_days: activeDays, history_days: observedDays,
             predicted_next_7_days: nextDays.map(entry => entry.amount),
             next_days_detail: nextDays, week_days_detail: thisWeek,
             total_forecast: totalForecast, average_daily_forecast: Math.round(totalForecast / 7),
-            warning_level: weekPercent > 20 ? 'CAO' : weekPercent > 10 ? 'TRUNG_BINH' : 'THAM_KHAO',
-            message: weekPercent === null
-                ? 'Tuần trước không có khoản chi được ghi nhận để so sánh.'
-                : `Chi tiêu tuần này ước tính ${weekPercent === 0 ? 'bằng' : weekPercent > 0 ? `cao hơn ${weekPercent}% so với` : `thấp hơn ${Math.abs(weekPercent)}% so với`} tuần trước.`,
+            warning_level: limitedHistory ? 'THAM_KHAO' : weekPercent > 20 ? 'CAO' : weekPercent > 10 ? 'TRUNG_BINH' : 'THAM_KHAO',
+            message: limitedHistory
+                ? `Lịch sử còn ít: ${activeDays} ngày có khoản chi trong ${observedDays} ngày quan sát. Ước tính theo mức chi trung bình. ${comparison}`
+                : comparison,
             last_7_days_total: lastWeekTotal, week_diff_amount: weekDiff, week_diff_percent: weekPercent,
             this_week_label: `${label(weekStart)} - ${label(day(weekStart, 6))}`,
             last_week_label: `${label(day(weekStart, -7))} - ${label(day(weekStart, -1))}`,
@@ -126,7 +135,7 @@ async function buildForecast(rows, period, predict, demo = false, firstRecordedD
             last_month_total: lastMonthTotal, month_diff_percent: monthPercent,
             this_month_label: `Tháng ${today.getUTCMonth() + 1}`,
             last_month_label: `Tháng ${lastMonth.getUTCMonth() + 1}`,
-            engine: demo ? 'Dữ liệu mô phỏng' : validModel ? 'LSTM hiệu chỉnh theo lịch sử chi tiêu' : 'Trung bình chi tiêu 30 ngày'
+            engine: demo ? 'Dữ liệu mô phỏng' : validModel ? 'LSTM hiệu chỉnh theo lịch sử chi tiêu' : `Trung bình chi tiêu ${observedDays} ngày`
         }
     };
 }

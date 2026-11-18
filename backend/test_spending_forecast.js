@@ -14,6 +14,29 @@ test('insufficient history does not invoke the model or produce a projection', a
     assert.equal(result.data, null);
 });
 
+test('established accounts with only a few expense days receive a limited estimate', async () => {
+    const { data } = await buildForecast([rows[0], rows[26]], period,
+        () => assert.fail('sparse history should skip the model'));
+    assert.equal(data.history_days, 30);
+    assert.equal(data.active_days, 2);
+    assert.equal(data.predicted_next_7_days[0], 4667);
+    assert.match(data.message, /Lịch sử còn ít/);
+});
+
+test('a shorter history uses its actual observation window', async () => {
+    const { data } = await buildForecast([rows[20], rows[27]], period,
+        () => assert.fail('short history should skip the model'));
+    assert.equal(data.history_days, 10);
+    assert.deepEqual(data.predicted_next_7_days, Array(7).fill(14000));
+});
+
+test('many expenses on one day or only a few days of history remain insufficient', async () => {
+    for (const history of [Array(10).fill(rows[0]), rows.slice(-2)]) {
+        const result = await buildForecast(history, period, () => assert.fail('model called'));
+        assert.equal(result.has_enough_data, false);
+    }
+});
+
 test('matches the model horizon to Vietnam dates and excludes future actuals', async () => {
     const result = await buildForecast([
         ...rows,
