@@ -30,6 +30,19 @@ test('a shorter history uses its actual observation window', async () => {
     assert.deepEqual(data.predicted_next_7_days, Array(7).fill(14000));
 });
 
+test('LSTM starts at 20 observed days and still receives a 30-day input', async () => {
+    const short = await buildForecast(rows.slice(-19), period,
+        () => assert.fail('19 days should use the recorded average'));
+    assert.equal(short.data.engine, 'Trung bình chi tiêu 19 ngày');
+
+    const ready = await buildForecast(rows.slice(-20), period, async history => {
+        assert.deepEqual(history, [...Array(10).fill(0), ...Array(20).fill(70000)]);
+        return { predicted_next_7_days: Array(7).fill(70000) };
+    });
+    assert.equal(ready.data.history_days, 20);
+    assert.match(ready.data.engine, /^LSTM/);
+});
+
 test('many expenses on one day or only a few days of history remain insufficient', async () => {
     for (const history of [Array(10).fill(rows[0]), rows.slice(-2)]) {
         const result = await buildForecast(history, period, () => assert.fail('model called'));

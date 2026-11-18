@@ -2,6 +2,7 @@ const DAY_MS = 86_400_000;
 const HISTORY_DAYS = 30;
 const MIN_HISTORY_DAYS = 7;
 const MIN_ACTIVE_DAYS = 2;
+const MODEL_HISTORY_DAYS = 20;
 const MODEL_ACTIVE_DAYS = 7;
 const calendar = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
@@ -71,7 +72,7 @@ async function buildForecast(rows, period, predict, demo = false, firstRecordedD
     }
 
     const dailyAverage = sum(history) / observedDays;
-    const limitedHistory = !hasFullWindow || activeDays < MODEL_ACTIVE_DAYS;
+    const limitedHistory = observedDays < MODEL_HISTORY_DAYS || activeDays < MODEL_ACTIVE_DAYS;
     let model;
     if (!demo && !limitedHistory) {
         try {
