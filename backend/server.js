@@ -48,6 +48,7 @@ app.get('/api/debug-deploy', (req, res) => {
     res.json({
         deployed: true,
         version: '1.2.0',
+        commit: /^[a-f0-9]{40}$/i.test(process.env.RENDER_GIT_COMMIT || '') ? process.env.RENDER_GIT_COMMIT : null,
         timestamp: new Date().toISOString()
     });
 });

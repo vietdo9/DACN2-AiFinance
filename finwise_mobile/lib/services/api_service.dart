@@ -373,26 +373,24 @@ class ApiService {
 
   /// 9. Lấy Dự báo 7 ngày từ mạng LSTM AI (Độc lập theo dữ liệu thật của tài khoản)
   Future<ForecastModel> getAiForecast({bool isDemo = false}) async {
-    try {
-      final url = '$baseUrl/api/ai/user-forecast${isDemo ? '?demo=true' : ''}';
-      final response = await http
-          .get(Uri.parse(url), headers: _headers)
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final res = jsonDecode(response.body);
-        if (res['has_enough_data'] == false) {
-          return ForecastModel.empty(message: res['message']);
-        }
-        return ForecastModel.fromJson(
-          res['data'] ?? {},
-          hasEnoughData: true,
-          isDemoData: res['is_demo_data'] ?? isDemo,
-        );
-      }
-    } catch (_) {}
-
-    return ForecastModel.empty();
+    final url = '$baseUrl/api/ai/user-forecast${isDemo ? '?demo=true' : ''}';
+    final response = await http
+        .get(Uri.parse(url), headers: _headers)
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      throw StateError('Forecast request failed: ${response.statusCode}');
+    }
+    final res = jsonDecode(utf8.decode(response.bodyBytes));
+    if (res['has_enough_data'] == false && res['success'] == true) {
+      return ForecastModel.empty(message: res['message']);
+    }
+    if (res['success'] != true || res['data'] is! Map<String, dynamic>) {
+      throw const FormatException('Invalid forecast response');
+    }
+    return ForecastModel.fromJson(
+      res['data'],
+      isDemoData: res['is_demo_data'] == true,
+    );
   }
 
   /// 10. Quét ảnh hóa đơn / Bill thanh toán bằng AI (EasyOCR + PhoBERT)

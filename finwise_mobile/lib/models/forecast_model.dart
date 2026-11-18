@@ -30,6 +30,9 @@ class WeekDayForecast {
 class ForecastModel {
   final List<double> predictedNext7Days;
   final List<WeekDayForecast> weekDaysDetail;
+  final List<WeekDayForecast> nextDaysDetail;
+  final String asOf;
+  final String engine;
   final double totalForecast;
   final double averageDailyForecast;
   final String warningLevel; // 'AN_TOAN', 'TRUNG_BINH', 'CAO'
@@ -56,6 +59,9 @@ class ForecastModel {
   ForecastModel({
     required this.predictedNext7Days,
     List<WeekDayForecast>? weekDaysDetail,
+    this.nextDaysDetail = const [],
+    this.asOf = '',
+    this.engine = '',
     required this.totalForecast,
     required this.averageDailyForecast,
     required this.warningLevel,
@@ -129,10 +135,16 @@ class ForecastModel {
     return ForecastModel(
       predictedNext7Days: list,
       weekDaysDetail: weekDetail,
+      nextDaysDetail: (json['next_days_detail'] as List?)
+              ?.map((entry) => WeekDayForecast.fromJson(entry))
+              .toList() ??
+          [],
+      asOf: json['as_of'] as String? ?? '',
+      engine: json['engine'] as String? ?? '',
       totalForecast: totalForecast,
       averageDailyForecast: (json['average_daily_forecast'] as num?)?.toDouble() ?? 0.0,
-      warningLevel: json['warning_level'] ?? 'AN_TOAN',
-      message: json['message'] ?? 'Dòng tiền dự kiến ổn định.',
+      warningLevel: json['warning_level'] ?? 'THAM_KHAO',
+      message: json['message'] ?? 'Ước tính dựa trên các khoản chi đã ghi nhận.',
       historicalRecentDays: hist,
       hasEnoughData: hasEnoughData,
       isDemoData: isDemoData,

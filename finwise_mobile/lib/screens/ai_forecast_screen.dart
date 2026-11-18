@@ -17,6 +17,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   bool _isLoading = true;
   ForecastModel? _forecast;
   bool _isDemoMode = false;
+  bool _hasLoadError = false;
   int _selectedViewTab = 0; // 0: Theo Tuần (7 Ngày), 1: Theo Tháng
 
   @override
@@ -28,14 +29,21 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   Future<void> _loadForecast({bool isDemo = false}) async {
     setState(() {
       _isLoading = true;
+      _hasLoadError = false;
       _isDemoMode = isDemo;
     });
 
-    final data = await ApiService().getAiForecast(isDemo: isDemo);
-
-    if (mounted) {
+    try {
+      final data = await ApiService().getAiForecast(isDemo: isDemo);
+      if (!mounted) return;
       setState(() {
         _forecast = data;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _hasLoadError = true;
         _isLoading = false;
       });
     }
@@ -53,7 +61,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
               CircularProgressIndicator(color: Color(0xFF4F46E5)),
               SizedBox(height: 16),
               Text(
-                'Mạng nơ-ron LSTM đang phân tích chuỗi thời gian...',
+                'Đang tải dự báo chi tiêu…',
                 style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
               ),
             ],
@@ -65,7 +73,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
     final forecast = _forecast ?? ForecastModel.empty();
 
     // Nếu tài khoản mới chưa có dữ liệu và không ở chế độ Demo
-    if (!forecast.hasEnoughData && !_isDemoMode) {
+    if (_hasLoadError || !forecast.hasEnoughData) {
       return _buildEmptyState();
     }
 
@@ -91,7 +99,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Banner báo hiệu nếu đang xem dữ liệu mô phỏng
-            if (_isDemoMode || forecast.isDemoData) ...[
+            if (forecast.isDemoData) ...[
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -415,6 +423,16 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
         ),
         const SizedBox(height: 10),
         _buildDailyList(forecast),
+        if (forecast.nextDaysDetail.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          const Text('Ước tính từ ngày mai đến 7 ngày tới',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          _buildDailyList(forecast, upcoming: true),
+          const SizedBox(height: 8),
+          Text('${forecast.engine}. Ngày ngoài phạm vi mô hình dùng mức chi trung bình 30 ngày.',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+        ],
       ],
     );
   }
@@ -435,11 +453,11 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
       badgeIcon = Icons.trending_up;
     } else if (isDecrease) {
       badgeColor = const Color(0xFF10B981);
-      badgeText = 'Tiết kiệm ${diffPct.abs()}%';
+      badgeText = 'Thấp hơn ${diffPct.abs()}%';
       badgeIcon = Icons.trending_down;
     } else {
       badgeColor = const Color(0xFF4F46E5);
-      badgeText = 'Ổn định';
+      badgeText = forecast.last7DaysTotal == 0 ? 'Chưa có mốc so sánh' : 'Ngang tuần trước';
       badgeIcon = Icons.trending_flat;
     }
 
@@ -538,8 +556,9 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   }
 
   // Danh sách chi tiết từng ngày trong tuần
-  Widget _buildDailyList(ForecastModel forecast) {
-    if (forecast.weekDaysDetail.isNotEmpty) {
+  Widget _buildDailyList(ForecastModel forecast, {bool upcoming = false}) {
+    final entries = upcoming ? forecast.nextDaysDetail : forecast.weekDaysDetail;
+    if (entries.isNotEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -550,15 +569,15 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
           ],
         ),
         child: Column(
-          children: List.generate(forecast.weekDaysDetail.length, (i) {
-            final day = forecast.weekDaysDetail[i];
-            final isPastOrToday = day.isPastOrToday;
+          children: List.generate(entries.length, (i) {
+            final day = entries[i];
+            final isPastOrToday = !day.isPredicted;
             final isWeekend = day.dayName == 'T7' || day.dayName == 'CN';
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                border: i < forecast.weekDaysDetail.length - 1
+                border: i < entries.length - 1
                     ? const Border(bottom: BorderSide(color: Color(0xFFF8FAFC), width: 1.5))
                     : null,
               ),
@@ -600,7 +619,9 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          isPastOrToday ? 'Đã chi thực tế' : 'Dự kiến AI',
+                          day.isPredicted
+                              ? 'Ước tính'
+                              : day.date == forecast.asOf ? 'Đã ghi nhận hôm nay' : 'Đã ghi nhận',
                           style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w500,
@@ -699,7 +720,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   // VIEW 2: DỰ BÁO THEO THÁNG (THÁNG NÀY VS THÁNG TRƯỚC)
   // ==========================================
   Widget _buildMonthView(ForecastModel forecast) {
-    final now = DateTime.now();
+    final now = DateTime.tryParse(forecast.asOf) ?? DateTime.now();
     final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
     final daysPassed = now.day;
     final progress = (daysPassed / daysInMonth).clamp(0.0, 1.0);
@@ -715,10 +736,10 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
       badgeText = 'Dự kiến tăng +$monthDiff% so với tháng trước';
     } else if (isDecrease) {
       badgeColor = const Color(0xFF10B981);
-      badgeText = 'Dự kiến tiết kiệm ${monthDiff.abs()}% so với tháng trước';
+      badgeText = 'Ước tính thấp hơn ${monthDiff.abs()}% so với tháng trước';
     } else {
       badgeColor = const Color(0xFF4F46E5);
-      badgeText = 'Dự kiến ngang bằng tháng trước';
+      badgeText = forecast.lastMonthTotal == 0 ? 'Chưa có mốc so sánh' : 'Dự kiến ngang bằng tháng trước';
     }
 
     final remainingProjected = (forecast.thisMonthProjected - forecast.thisMonthSpent).clamp(0.0, double.infinity);
@@ -887,11 +908,9 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              Text(
-                monthDiff <= 0
-                    ? 'Tuyệt vời! Theo tốc độ hiện tại, chi tiêu tháng này của bạn dự kiến sẽ tiết kiệm hơn hoặc bằng tháng trước. Hãy duy trì thói quen chi tiêu kỷ luật này đến cuối tháng.'
-                    : 'Lưu ý: Tốc độ chi tiêu hiện tại đang dự phóng cao hơn tháng trước $monthDiff%. Hãy rà soát lại các khoản chi không thiết yếu (mua sắm, giải trí) để giữ ngân sách an toàn.',
-                style: const TextStyle(fontSize: 12.5, color: Color(0xFF475569), height: 1.45),
+              const Text(
+                'Ước tính tháng cộng chi tiêu đã ghi nhận với mức chi trung bình 30 ngày cho các ngày còn lại.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF475569), height: 1.45),
               ),
             ],
           ),
@@ -911,7 +930,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF64748B)),
-            onPressed: () => _loadForecast(isDemo: false),
+            onPressed: () => _loadForecast(isDemo: _isDemoMode),
           ),
         ],
       ),
@@ -935,57 +954,25 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                 child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5), size: 48),
               ),
               const SizedBox(height: 20),
-              const Text(
-                'Tài Khoản Mới Đang Chờ Dữ Liệu',
+              Text(
+                _hasLoadError ? 'Chưa tải được dự báo' : 'Chưa đủ lịch sử chi tiêu',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Mô hình AI (LSTM) của FinWise phân tích chuỗi thời gian độc lập cho từng tài khoản riêng biệt. Bạn chưa có giao dịch chi tiêu nào để AI phân tích thói quen dòng tiền.',
+              Text(
+                _hasLoadError ? 'Kiểm tra kết nối và thử tải lại.' : _forecast?.message ?? '',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.5),
+                style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.5),
               ),
               const SizedBox(height: 28),
 
-              // Thẻ lợi ích
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 2))
-                  ],
-                ),
-                child: const Column(
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.lock_outline, color: Color(0xFF10B981), size: 18),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text('Dữ liệu phân tích hoàn toàn riêng tư cho tài khoản của bạn', style: TextStyle(fontSize: 12, color: Color(0xFF334155))),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Icon(Icons.electric_bolt_outlined, color: Color(0xFFF59E0B), size: 18),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text('AI tự động học sau mỗi lần bạn thêm chi tiêu mới', style: TextStyle(fontSize: 12, color: Color(0xFF334155))),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 28),
-
-              // Nút thêm giao dịch đầu tiên
+              if (_hasLoadError)
+                FilledButton(
+                  onPressed: () => _loadForecast(isDemo: _isDemoMode),
+                  child: const Text('Thử lại'),
+                )
+              else ...[
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -995,10 +982,10 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                       context,
                       MaterialPageRoute(builder: (_) => const AddTransactionScreen()),
                     );
-                    _loadForecast();
+                    if (mounted) _loadForecast();
                   },
                   icon: const Icon(Icons.add_circle_outline, size: 20),
-                  label: const Text('Thêm Giao Dịch Đầu Tiên', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  label: const Text('Thêm giao dịch', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF4F46E5),
                     foregroundColor: Colors.white,
@@ -1006,6 +993,7 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
                   ),
                 ),
               ),
+              ],
               const SizedBox(height: 12),
 
               // Nút xem demo mô phỏng cho thuyết trình đồ án
@@ -1049,14 +1037,14 @@ class _AiForecastScreenState extends State<AiForecastScreen> {
   String _getWarningText(String level) {
     switch (level) {
       case 'CAO':
-        return 'CẦN THẮT CHẶT';
+        return 'DỰ KIẾN CHI TĂNG';
       case 'CHU_KY_DAU_THANG':
         return 'CHU KỲ ĐẦU THÁNG';
       case 'TRUNG_BINH':
-        return 'CẦN LƯU Ý';
+        return 'DỰ KIẾN CHI TĂNG NHẸ';
       case 'AN_TOAN':
       default:
-        return 'AN TOÀN & ỔN ĐỊNH';
+        return 'XU HƯỚNG CHI TIÊU';
     }
   }
 }
