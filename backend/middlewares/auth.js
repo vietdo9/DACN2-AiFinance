@@ -1,7 +1,21 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 require('dotenv').config();
+const { isAdminPrincipal } = require('../services/authPolicy');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'finwise_default_jwt_secret';
+const configuredJwtSecret = process.env.JWT_SECRET;
+const LEGACY_DEFAULT_JWT_SECRET_SHA256 = '590c8bdbeefd0cac94ca8e1fc9fe003d55200360d58dd23a28bb82745f9e4945';
+const configuredSecretHash = configuredJwtSecret
+    ? crypto.createHash('sha256').update(configuredJwtSecret).digest()
+    : null;
+const legacySecretHash = Buffer.from(LEGACY_DEFAULT_JWT_SECRET_SHA256, 'hex');
+const hasDeprecatedSecret = configuredSecretHash && crypto.timingSafeEqual(configuredSecretHash, legacySecretHash);
+const usesEphemeralSecret = !configuredJwtSecret || hasDeprecatedSecret;
+const JWT_SECRET = usesEphemeralSecret ? crypto.randomBytes(32).toString('hex') : configuredJwtSecret;
+
+if (usesEphemeralSecret) {
+    console.warn('[!] JWT_SECRET is unset or uses a deprecated default. A temporary process secret is active; set a unique JWT_SECRET. Existing sessions may need to sign in again.');
+}
 
 const verifyToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -28,7 +42,7 @@ const verifyToken = (req, res, next) => {
 
 const verifyAdmin = (req, res, next) => {
     verifyToken(req, res, () => {
-        if (req.user && (req.user.role === 'admin' || req.user.email === 'admin@finwise.com' || req.user.email === 'admin@finwise.vn')) {
+        if (isAdminPrincipal(req.user)) {
             return next();
         }
         return res.status(403).json({

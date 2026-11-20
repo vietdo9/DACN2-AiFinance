@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { supabase, isSupabaseConfigured } = require('../config/supabase');
 const { verifyToken, JWT_SECRET } = require('../middlewares/auth');
 const localStore = require('../config/localStore');
+const { isLegacyDefaultAdminPassword, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
 
 // Đăng ký tài khoản
 router.post('/register', async (req, res) => {
@@ -17,6 +18,9 @@ router.post('/register', async (req, res) => {
         }
 
         const normalizedEmail = email.trim().toLowerCase();
+        if (isReservedAdminEmail(normalizedEmail)) {
+            return res.status(400).json({ success: false, message: 'Email này được dành riêng cho tài khoản quản trị' });
+        }
         let userCreated = null;
 
         // Mã hóa mật khẩu
@@ -126,6 +130,9 @@ router.post('/login', async (req, res) => {
         }
 
         const normalizedEmail = email.trim().toLowerCase();
+        if (isReservedAdminEmail(normalizedEmail) && isLegacyDefaultAdminPassword(password)) {
+            return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không chính xác' });
+        }
         let foundUser = null;
 
         // 1. Tìm trong Supabase
@@ -139,12 +146,12 @@ router.post('/login', async (req, res) => {
 
                 if (!error && user) {
                     const isMatch = await bcrypt.compare(password, user.password_hash);
-                    if (isMatch) {
+                    if (isMatch && !(roleForUser(user) === 'admin' && isLegacyDefaultAdminPassword(password))) {
                         foundUser = {
                             id: user.id,
                             email: user.email,
                             full_name: user.full_name,
-                            role: user.role || (normalizedEmail === 'admin@finwise.com' || normalizedEmail === 'admin@finwise.vn' ? 'admin' : 'user'),
+                            role: roleForUser(user),
                             status: user.status || 'active'
                         };
                     }
@@ -159,30 +166,19 @@ router.post('/login', async (req, res) => {
             const localUser = localStore.findUserByEmail(normalizedEmail);
             if (localUser) {
                 const isMatch = await bcrypt.compare(password, localUser.password_hash);
-                if (isMatch) {
+                if (isMatch && !(roleForUser(localUser) === 'admin' && isLegacyDefaultAdminPassword(password))) {
                     foundUser = {
                         id: localUser.id,
                         email: localUser.email,
                         full_name: localUser.full_name,
-                        role: localUser.role || (normalizedEmail === 'admin@finwise.com' || normalizedEmail === 'admin@finwise.vn' ? 'admin' : 'user'),
+                        role: roleForUser(localUser),
                         status: localUser.status || 'active'
                     };
                 }
             }
         }
 
-        // 3. Hỗ trợ tài khoản Quản trị viên (Admin) mặc định
-        if (!foundUser && (normalizedEmail === 'admin@finwise.com' || normalizedEmail === 'admin@finwise.vn') && password === 'admin123456') {
-            foundUser = {
-                id: 'admin-00000000-0000-0000-0000-000000000001',
-                email: normalizedEmail,
-                full_name: 'Quản Trị Viên Hệ Thống',
-                role: 'admin',
-                status: 'active'
-            };
-        }
-
-        // 4. Hỗ trợ tài khoản Demo mặc định
+        // Hỗ trợ tài khoản Demo mặc định
         if (!foundUser && normalizedEmail === 'demo@finwise.vn' && password === '123456') {
             foundUser = {
                 id: '00000000-0000-0000-0000-000000000001',
@@ -206,7 +202,12 @@ router.post('/login', async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: foundUser.id, email: foundUser.email, role: foundUser.role },
+            {
+                id: foundUser.id,
+                email: foundUser.email,
+                role: foundUser.role,
+                ...(foundUser.role === 'admin' ? { admin_auth_version: 2 } : {})
+            },
             JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -232,7 +233,7 @@ router.get('/me', verifyToken, async (req, res) => {
             try {
                 const { data: user, error } = await supabase
                     .from('users')
-                    .select('id, email, full_name, avatar_url, role, status, created_at')
+                    .select('*')
                     .eq('id', req.user.id)
                     .maybeSingle();
 
@@ -241,10 +242,14 @@ router.get('/me', verifyToken, async (req, res) => {
                         success: true, 
                         data: { 
                             user: {
-                                ...user,
-                                role: user.role || (user.email === 'admin@finwise.com' || user.email === 'admin@finwise.vn' ? 'admin' : 'user'),
-                                status: user.status || 'active'
-                            } 
+                                id: user.id,
+                                email: user.email,
+                                full_name: user.full_name,
+                                avatar_url: user.avatar_url,
+                                role: roleForUser(user),
+                                status: user.status || 'active',
+                                created_at: user.created_at
+                            }
                         } 
                     });
                 }
@@ -261,7 +266,7 @@ router.get('/me', verifyToken, async (req, res) => {
                         id: localUser.id,
                         email: localUser.email,
                         full_name: localUser.full_name,
-                        role: localUser.role || (localUser.email === 'admin@finwise.com' || localUser.email === 'admin@finwise.vn' ? 'admin' : 'user'),
+                        role: roleForUser(localUser),
                         status: localUser.status || 'active',
                         created_at: localUser.created_at
                     } 
@@ -274,7 +279,7 @@ router.get('/me', verifyToken, async (req, res) => {
             data: { 
                 user: {
                     ...req.user,
-                    role: req.user.role || (req.user.email === 'admin@finwise.com' ? 'admin' : 'user'),
+                    role: roleForUser(req.user),
                     status: 'active'
                 } 
             } 
