@@ -13,6 +13,8 @@ class NotificationSyncService {
 
   StreamSubscription? _subscription;
   final Set<String> _processedNotificationHashes = {};
+  bool get _supportsNotificationListener =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   
   // Thông báo tới UI khi vừa tự động bắt và lưu thành công một giao dịch
   final ValueNotifier<String?> lastCapturedMessage = ValueNotifier<String?>(null);
@@ -61,6 +63,11 @@ class NotificationSyncService {
 
   /// Kiểm tra xem người dùng đã cấp quyền Notification Access chưa
   Future<bool> checkPermission() async {
+    if (!_supportsNotificationListener) {
+      isPermissionEnabled.value = false;
+      return false;
+    }
+
     try {
       final granted = await NotificationListenerService.isPermissionGranted();
       isPermissionEnabled.value = granted;
@@ -73,6 +80,11 @@ class NotificationSyncService {
 
   /// Mở màn hình cài đặt Android để người dùng bật quyền Đọc thông báo cho FinWise
   Future<bool> requestPermission() async {
+    if (!_supportsNotificationListener) {
+      isPermissionEnabled.value = false;
+      return false;
+    }
+
     try {
       final result = await NotificationListenerService.requestPermission();
       await checkPermission();
@@ -85,6 +97,7 @@ class NotificationSyncService {
 
   /// Bắt đầu lắng nghe thông báo hệ thống theo thời gian thực
   void startListening({VoidCallback? onNewTransaction}) {
+    if (!_supportsNotificationListener) return;
     if (_subscription != null) return; // Đang chạy
 
     debugPrint('[NotificationSyncService] Khởi động luồng lắng nghe thông báo...');
