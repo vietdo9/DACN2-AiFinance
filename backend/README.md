@@ -28,9 +28,12 @@ Mở mục **Project Settings -> API** trên Supabase, lấy **Project URL** và
 PORT=5000
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_KEY=your-supabase-anon-key
-JWT_SECRET=finwise_super_secret_jwt_key_2026_dacn2
+JWT_SECRET=<a unique randomly generated secret of at least 32 bytes>
+FINWISE_ADMIN_EMAILS=<comma-separated admin addresses, such as the provisioned admin account>
 AI_SERVICE_URL=http://localhost:8000
 ```
+
+Admin access requires a stored password hash and an explicit `role: admin` on the user record or an address listed in `FINWISE_ADMIN_EMAILS`. The built-in admin demo credentials are disabled. Configure a unique `JWT_SECRET` before deployment; if it is unset or matches the deprecated default, the server generates an ephemeral process secret and existing sessions will need to sign in again after restart.
 
 ---
 

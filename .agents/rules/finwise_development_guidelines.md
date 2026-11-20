@@ -28,10 +28,11 @@
 - This ensures Render's build process locates `package.json` correctly and prevents `ENOENT` build failure.
 
 ## 7. Role-Based Access Control (RBAC) & Admin Actor
-- Default Root Admin: `admin@finwise.com` / `admin123456`.
+- Admin access requires a stored password hash and an explicit persisted admin role or an address configured in `FINWISE_ADMIN_EMAILS`; email aliases alone never grant admin access.
+- Do not ship default admin credentials or an admin demo-login button. Reserve configured admin addresses from public registration.
 - Root Admin Protection: The system must NEVER allow deleting or suspending the root administrator account.
 - Security & Privacy: Admin APIs must be guarded by `verifyAdmin` middleware. The Admin dashboard provides aggregate health monitoring (KPIs, AI services, user status) without exposing sensitive personal transaction records.
-- Mobile Flow: Provide a 1-tap Admin demo button on the login screen for seamless defense presentations.
+- Mobile Flow: Keep a regular demo user shortcut for defense presentations; never prefill admin credentials.
 
 ## 8. Continuous Deployment & Real-World APK Release Cycle
 - **Backend & AI updates**: Deploy by pushing to GitHub (`git push origin main`); Render automatically redeploys. Existing mobile APKs receive updates immediately without reinstallation.

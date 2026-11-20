@@ -154,19 +154,6 @@ class ApiService {
         'message': data['message'] ?? 'Email hoặc mật khẩu không chính xác.'
       };
     } catch (e) {
-      if ((email.trim().toLowerCase() == 'admin@finwise.com' || email.trim().toLowerCase() == 'admin@finwise.vn') && password == 'admin123456') {
-        _authToken = 'admin_token';
-        _currentUser = UserModel(
-          id: 'admin-00000000-0000-0000-0000-000000000001',
-          email: 'admin@finwise.com',
-          fullName: 'Quản Trị Viên Hệ Thống',
-          token: 'admin_token',
-          role: 'admin',
-          status: 'active',
-        );
-        return {'success': true, 'message': 'Đăng nhập tài khoản Quản Trị Viên Admin thành công!'};
-      }
-
       if (email.trim().toLowerCase() == 'demo@finwise.vn' && password == '123456') {
         _authToken = 'demo_token';
         _currentUser = UserModel(

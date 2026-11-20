@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/api_service.dart';
@@ -91,6 +92,22 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       totalBalance = income - expense;
     }
 
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (kIsWeb && constraints.maxWidth >= 900) {
+          return _buildWideWebDashboard(
+            totalBalance: totalBalance,
+            income: income,
+            expense: expense,
+            categoryBreakdown: categoryBreakdown,
+          );
+        }
+        return _buildMobileDashboard(totalBalance, income, expense, categoryBreakdown);
+      },
+    );
+  }
+
+  Widget _buildMobileDashboard(double totalBalance, double income, double expense, List<dynamic> categoryBreakdown) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -207,6 +224,234 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             _loadData(showLoading: false);
           }
         },
+      ),
+    );
+  }
+
+  Widget _buildWideWebDashboard({
+    required double totalBalance,
+    required double income,
+    required double expense,
+    required List<dynamic> categoryBreakdown,
+  }) {
+    final periodLabel = expense > 0 ? 'Tháng này' : 'Toàn bộ';
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F8FA),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        titleSpacing: 32,
+        title: const Row(
+          children: [
+            Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF4F46E5), size: 22),
+            SizedBox(width: 10),
+            Text('FinWise AI', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18, color: Color(0xFF1E293B))),
+            SizedBox(width: 12),
+            Text('Sổ thu chi cá nhân', style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync, color: Color(0xFF4F46E5)),
+            tooltip: 'Đồng bộ ngay',
+            onPressed: () => _loadData(showLoading: false),
+          ),
+          const SizedBox(width: 20),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => _loadData(showLoading: false),
+        child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(32, 28, 32, 40),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1440),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(flex: 2, child: _buildWideStatCard('Số dư hiện tại', totalBalance, prominent: true)),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildWideStatCard('Thu tháng này', income, valueColor: const Color(0xFF15803D))),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildWideStatCard('Chi tháng này', expense, valueColor: const Color(0xFFB91C1C))),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(child: _buildWideNotificationCard()),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildWideForecastCard()),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    if (categoryBreakdown.isNotEmpty)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 6,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildWideSectionHeading('Chi tiêu theo danh mục', periodLabel),
+                                const SizedBox(height: 12),
+                                _buildCategoryChart(categoryBreakdown),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 24),
+                          Expanded(
+                            flex: 5,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildWideSectionHeading('Giao dịch gần đây', 'Xem tất cả', onAction: () => widget.onNavigateTab(1)),
+                                const SizedBox(height: 12),
+                                _buildRecentTransactionsList(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      )
+                    else ...[
+                      _buildWideSectionHeading('Giao dịch gần đây', 'Xem tất cả', onAction: () => widget.onNavigateTab(1)),
+                      const SizedBox(height: 12),
+                      _buildRecentTransactionsList(),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: const Color(0xFF4F46E5),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Thêm thu/chi', style: TextStyle(fontWeight: FontWeight.w600)),
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AddTransactionScreen()),
+          );
+          if (result == true) {
+            NotificationSyncService().dataRefreshTrigger.value++;
+            _loadData(showLoading: false);
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildWideStatCard(String label, double value, {Color valueColor = const Color(0xFF1E293B), bool prominent = false}) {
+    return SizedBox(
+      height: 136,
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF64748B))),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  currencyFormat.format(value),
+                  style: TextStyle(fontSize: prominent ? 30 : 22, height: 1.2, fontWeight: FontWeight.w600, color: valueColor),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _buildWideSectionHeading(String title, String trailing, {VoidCallback? onAction}) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+        ),
+        const SizedBox(width: 12),
+        if (onAction != null)
+          TextButton(onPressed: onAction, child: Text(trailing, style: const TextStyle(color: Color(0xFF4F46E5))))
+        else
+          Text(trailing, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+      ],
+    );
+  }
+  Widget _buildWideNotificationCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.notifications_none, color: Color(0xFF64748B), size: 20),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('Tự động ghi nhận giao dịch', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
+                SizedBox(height: 4),
+                Text('Thông báo ngân hàng được nhận trên ứng dụng Android', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  Widget _buildWideForecastCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.show_chart, color: Color(0xFF64748B), size: 20),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('Dự báo tài chính', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
+                SizedBox(height: 4),
+                Text('Xu hướng chi tiêu trong 7 ngày tới', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: () => widget.onNavigateTab(2),
+            icon: const Icon(Icons.arrow_forward, size: 16),
+            label: const Text('Mở dự báo'),
+          ),
+        ],
       ),
     );
   }
