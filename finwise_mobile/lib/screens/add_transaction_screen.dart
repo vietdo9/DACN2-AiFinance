@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/category_model.dart';
@@ -488,6 +489,94 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       if (mounted && !saved) setState(() => _isSavingTransaction = false);
     }
   }
+
+  Widget _buildWebCategoryPicker() {
+    final displayedCategories = _categories.where((category) => category.type == _type).toList();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final pickerWidth = constraints.maxWidth.clamp(0.0, 760.0);
+        final columns = pickerWidth >= 640 ? 3 : (pickerWidth >= 400 ? 2 : 1);
+
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                mainAxisExtent: 52,
+              ),
+              itemCount: displayedCategories.length,
+              itemBuilder: (context, index) {
+                final category = displayedCategories[index];
+                final isSelected = category.code == _selectedCategoryCode;
+                void selectCategory() => setState(() => _selectedCategoryCode = category.code);
+
+                final button = Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  child: InkWell(
+                    onTap: selectCategory,
+                    borderRadius: BorderRadius.circular(10),
+                    focusColor: const Color(0xFFE0E7FF),
+                    hoverColor: const Color(0xFFF1F5F9),
+                    splashColor: const Color(0xFFEEF2FF),
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE2E8F0),
+                          width: isSelected ? 1.5 : 1,
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          Icon(category.iconData, color: category.color, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              category.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                color: isSelected ? const Color(0xFF3730A3) : const Color(0xFF334155),
+                              ),
+                            ),
+                          ),
+                          if (isSelected) ...[
+                            const SizedBox(width: 8),
+                            const Icon(Icons.check_circle, color: Color(0xFF4F46E5), size: 18),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+
+                return Semantics(
+                  button: true,
+                  selected: isSelected,
+                  label: category.name,
+                  onTap: selectCategory,
+                  child: ExcludeSemantics(child: button),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('dd/MM/yyyy');
@@ -876,6 +965,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
             if (_isLoadingCategories)
               const Center(child: CircularProgressIndicator())
+            else if (kIsWeb)
+              _buildWebCategoryPicker()
             else
               Builder(
                 builder: (context) {
