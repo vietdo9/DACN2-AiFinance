@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'services/api_service.dart';
@@ -59,6 +60,7 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  final GlobalKey _screenStackKey = GlobalKey();
 
   @override
   void initState() {
@@ -119,39 +121,212 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
       _buildProfileScreen(),
     ];
 
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: screens,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useDesktopShell = kIsWeb && constraints.maxWidth >= 1000;
+        final showSidebarLabels = constraints.maxWidth >= 1188;
+        final screenStack = IndexedStack(
+          key: _screenStackKey,
+          index: _currentIndex,
+          children: screens,
+        );
+
+        return Scaffold(
+          body: useDesktopShell
+              ? Row(
+                  children: [
+                    _buildWebSidebar(showLabels: showSidebarLabels),
+                    Expanded(
+                      child: ColoredBox(
+                        color: const Color(0xFFF7F8FA),
+                        child: LayoutBuilder(
+                          builder: (context, contentConstraints) {
+                            final maxContentWidth = _currentIndex == 0 ? 1440.0 : 1120.0;
+                            return Center(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: maxContentWidth,
+                                  maxHeight: contentConstraints.maxHeight,
+                                ),
+                                child: SizedBox.expand(child: screenStack),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : screenStack,
+          bottomNavigationBar: useDesktopShell
+              ? null
+              : NavigationBar(
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+                  backgroundColor: Colors.white,
+                  elevation: 10,
+                  indicatorColor: const Color(0xFF4F46E5).withValues(alpha: 0.12),
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.home_outlined),
+                      selectedIcon: Icon(Icons.home, color: Color(0xFF4F46E5)),
+                      label: 'Tổng quan',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.receipt_long_outlined),
+                      selectedIcon: Icon(Icons.receipt_long, color: Color(0xFF4F46E5)),
+                      label: 'Giao dịch',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.insights_outlined),
+                      selectedIcon: Icon(Icons.insights, color: Color(0xFF4F46E5)),
+                      label: 'Dự báo AI',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.person_outline),
+                      selectedIcon: Icon(Icons.person, color: Color(0xFF4F46E5)),
+                      label: 'Cá nhân',
+                    ),
+                  ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildWebSidebar({required bool showLabels}) {
+    final user = ApiService().currentUser;
+    const destinations = [
+      (Icons.home_outlined, 'Tổng quan'),
+      (Icons.receipt_long_outlined, 'Giao dịch'),
+      (Icons.insights_outlined, 'Dự báo AI'),
+      (Icons.person_outline, 'Cá nhân'),
+    ];
+
+    return Container(
+      width: showLabels ? 244 : 80,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
-        backgroundColor: Colors.white,
-        elevation: 10,
-        indicatorColor: const Color(0xFF4F46E5).withValues(alpha: 0.12),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home, color: Color(0xFF4F46E5)),
-            label: 'Tổng quan',
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: showLabels ? 16 : 12, vertical: 20),
+          child: Column(
+            crossAxisAlignment: showLabels ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+            children: [
+              if (showLabels)
+                Row(
+                  children: [
+                    const Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF4F46E5), size: 24),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('FinWise AI', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                          SizedBox(height: 2),
+                          Text('Sổ thu chi cá nhân', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else
+                const Tooltip(
+                  message: 'FinWise AI',
+                  child: Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF4F46E5), size: 24),
+                ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.only(top: 28),
+                  children: [
+                    for (var index = 0; index < destinations.length; index++)
+                      _buildWebNavigationItem(
+                        index: index,
+                        icon: destinations[index].$1,
+                        label: destinations[index].$2,
+                        showLabel: showLabels,
+                      ),
+                  ],
+                ),
+              ),
+              const Divider(height: 24, color: Color(0xFFE2E8F0)),
+              if (showLabels)
+                Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Color(0xFFEEF2FF),
+                      child: Icon(Icons.person_outline, color: Color(0xFF3730A3), size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        user?.email ?? 'Tài khoản',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Tooltip(
+                  message: user?.email ?? 'Tài khoản',
+                  child: const CircleAvatar(
+                    radius: 16,
+                    backgroundColor: Color(0xFFEEF2FF),
+                    child: Icon(Icons.person_outline, color: Color(0xFF3730A3), size: 18),
+                  ),
+                ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long, color: Color(0xFF4F46E5)),
-            label: 'Giao dịch',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebNavigationItem({
+    required int index,
+    required IconData icon,
+    required String label,
+    required bool showLabel,
+  }) {
+    final selected = _currentIndex == index;
+    final color = selected ? const Color(0xFF3730A3) : const Color(0xFF64748B);
+    void selectItem() => setState(() => _currentIndex = index);
+    final item = Material(
+      color: selected ? const Color(0xFFEEF2FF) : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: selectItem,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: EdgeInsets.symmetric(horizontal: showLabel ? 12 : 0, vertical: 12),
+          alignment: showLabel ? Alignment.centerLeft : Alignment.center,
+          child: Row(
+            mainAxisAlignment: showLabel ? MainAxisAlignment.start : MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: color),
+              if (showLabel) ...[
+                const SizedBox(width: 12),
+                Text(label, style: TextStyle(fontSize: 13, fontWeight: selected ? FontWeight.w600 : FontWeight.w400, color: color)),
+              ],
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights, color: Color(0xFF4F46E5)),
-            label: 'Dự báo AI',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person, color: Color(0xFF4F46E5)),
-            label: 'Cá nhân',
-          ),
-        ],
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        onTap: selectItem,
+        child: ExcludeSemantics(child: showLabel ? item : Tooltip(message: label, child: item)),
       ),
     );
   }
