@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../services/api_service.dart';
 import '../main.dart';
+import '../widgets/finwise_brand_mark.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -137,30 +139,38 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   // Logo & Tiêu đề
                   Center(
-                    child: Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(22),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
-                            blurRadius: 16,
-                            offset: const Offset(0, 8),
+                    child: kIsWeb
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: const FinWiseBrandMark(
+                              size: 80,
+                              fallbackIcon: Icons.account_balance_wallet_rounded,
+                            ),
+                          )
+                        : Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(22),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF4F46E5).withValues(alpha: 0.35),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.account_balance_wallet_rounded,
+                              color: Colors.white,
+                              size: 42,
+                            ),
                           ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.account_balance_wallet_rounded,
-                        color: Colors.white,
-                        size: 42,
-                      ),
-                    ),
                   ),
                   const SizedBox(height: 20),
                   const Text(

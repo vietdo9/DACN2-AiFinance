@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/api_service.dart';
+import '../widgets/finwise_brand_mark.dart';
 import '../services/notification_sync_service.dart';
 import '../models/transaction_model.dart';
 import 'add_transaction_screen.dart';
@@ -121,7 +122,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 color: const Color(0xFF4F46E5).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5), size: 20),
+              child: kIsWeb
+                  ? const FinWiseBrandMark(size: 24, fallbackIcon: Icons.auto_awesome, fallbackIconSize: 20)
+                  : const Icon(Icons.auto_awesome, color: Color(0xFF4F46E5), size: 20),
             ),
             const SizedBox(width: 10),
             const Column(
@@ -245,7 +248,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         titleSpacing: 32,
         title: const Row(
           children: [
-            Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF4F46E5), size: 22),
+            FinWiseBrandMark(size: 26, fallbackIcon: Icons.account_balance_wallet_outlined, fallbackIconSize: 22),
             SizedBox(width: 10),
             Text('FinWise AI', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18, color: Color(0xFF1E293B))),
             SizedBox(width: 12),

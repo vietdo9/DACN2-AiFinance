@@ -10,6 +10,7 @@ import 'screens/transactions_screen.dart';
 import 'screens/ai_forecast_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
 import 'screens/export_excel_dialog.dart';
+import 'widgets/finwise_brand_mark.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -218,7 +219,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
               if (showLabels)
                 Row(
                   children: [
-                    const Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF4F46E5), size: 24),
+                    const FinWiseBrandMark(size: 28, fallbackIcon: Icons.account_balance_wallet_outlined, fallbackIconSize: 24),
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Column(
@@ -235,7 +236,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
               else
                 const Tooltip(
                   message: 'FinWise AI',
-                  child: Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF4F46E5), size: 24),
+                  child: FinWiseBrandMark(size: 28, fallbackIcon: Icons.account_balance_wallet_outlined, fallbackIconSize: 24),
                 ),
               Expanded(
                 child: ListView(
@@ -384,7 +385,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
       builder: (ctx) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF4F46E5)),
+            FinWiseBrandMark(size: 24, fallbackIcon: Icons.account_balance_wallet_rounded),
             SizedBox(width: 8),
             Text('Về FinWise AI', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
