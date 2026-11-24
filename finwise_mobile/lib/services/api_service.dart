@@ -546,6 +546,77 @@ class ApiService {
     return 'Yêu cầu thất bại (HTTP $statusCode).';
   }
 
+  /// Creates a user from the admin console.
+  Future<AdminActionResult> createAdminUser({
+    required String fullName,
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/admin/users'),
+            headers: _headers,
+            body: jsonEncode({
+              'full_name': fullName.trim(),
+              'email': email.trim().toLowerCase(),
+              'password': password,
+            }),
+          )
+          .timeout(const Duration(seconds: 6));
+      final succeeded =
+          response.statusCode == 201 || response.statusCode == 200;
+      return AdminActionResult(
+        success: succeeded,
+        error: succeeded
+            ? null
+            : _adminResponseMessage(response.bodyBytes, response.statusCode),
+      );
+    } catch (e) {
+      debugPrint('[!] createAdminUser error: $e');
+      return const AdminActionResult(
+        success: false,
+        error: 'Không thể kết nối máy chủ quản trị.',
+      );
+    }
+  }
+
+  /// Updates a user's editable profile details from the admin console.
+  Future<AdminActionResult> updateAdminUserProfile(
+    String userId, {
+    required String fullName,
+    required String email,
+  }) async {
+    try {
+      final usersUri = Uri.parse('$baseUrl/api/admin/users');
+      final uri = usersUri.replace(
+        pathSegments: [...usersUri.pathSegments, userId, 'profile'],
+      );
+      final response = await http
+          .put(
+            uri,
+            headers: _headers,
+            body: jsonEncode({
+              'full_name': fullName.trim(),
+              'email': email.trim().toLowerCase(),
+            }),
+          )
+          .timeout(const Duration(seconds: 6));
+      final succeeded = response.statusCode == 200;
+      return AdminActionResult(
+        success: succeeded,
+        error: succeeded
+            ? null
+            : _adminResponseMessage(response.bodyBytes, response.statusCode),
+      );
+    } catch (e) {
+      debugPrint('[!] updateAdminUserProfile error: $e');
+      return const AdminActionResult(
+        success: false,
+        error: 'Không thể kết nối máy chủ quản trị.',
+      );
+    }
+  }
   /// Khóa hoặc mở khóa tài khoản người dùng
   Future<AdminActionResult> updateUserStatus(String userId, String status) async {
     try {
@@ -600,4 +671,3 @@ class ApiService {
     }
   }
 }
-

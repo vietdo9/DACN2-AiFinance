@@ -17,6 +17,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       Uri? lastList;
+      var createdUser = false;
       final client = MockClient((request) async {
         if (request.url.path.endsWith('/overview')) {
           return http.Response(
@@ -30,6 +31,18 @@ void main() {
             }),
             200,
           );
+        }
+        if (request.method == 'PUT' &&
+            request.url.path.endsWith('/mock-user-id/profile')) {
+          return http.Response(jsonEncode({'success': true}), 200);
+        }
+        if (request.method == 'POST' && request.url.path.endsWith('/users')) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['full_name'], 'Created fixture');
+          expect(body['email'], 'created@example.test');
+          expect(body['password'], 'AdminPass2026');
+          createdUser = true;
+          return http.Response(jsonEncode({'success': true}), 201);
         }
         if (request.url.path.endsWith('/users')) {
           lastList = request.url;
@@ -50,6 +63,7 @@ void main() {
                     'is_root_admin': false,
                     'can_suspend': true,
                     'can_change_role': true,
+                    'can_edit': true,
                     'can_delete': true,
                   },
                 ],
@@ -84,11 +98,39 @@ void main() {
         await tester.tap(find.text('Hủy'));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        await tester.tap(find.byTooltip('Thao tác tài khoản'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Sửa thông tin'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextFormField).first,
+          'Updated fixture',
+        );
+        await tester.tap(find.text('Lưu thay đổi'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
         await tester.tap(find.text('Tất cả trạng thái'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Tạm khóa').last);
         await tester.pumpAndSettle();
         expect(lastList?.queryParameters['status'], 'suspended');
+        await tester.tap(find.text('Thêm người dùng'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextFormField).at(0),
+          'Created fixture',
+        );
+        await tester.enterText(
+          find.byType(TextFormField).at(1),
+          'created@example.test',
+        );
+        await tester.enterText(
+          find.byType(TextFormField).at(2),
+          'AdminPass2026',
+        );
+        await tester.tap(find.text('Tạo tài khoản'));
+        await tester.pumpAndSettle();
+        expect(createdUser, isTrue);
         expect(tester.takeException(), isNull);
       }, () => client);
     },

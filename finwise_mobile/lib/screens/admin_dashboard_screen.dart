@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -32,6 +33,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   List<Map<String, dynamic>> _users = [];
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  static const _ink = Color(0xFF17212B);
+  static const _mutedInk = Color(0xFF65717D);
+  static const _paper = Color(0xFFF4F6F7);
+  static const _line = Color(0xFFE1E6E9);
 
   @override
   void initState() {
@@ -93,9 +98,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     String label,
     String value,
     Map<String, String> options,
-    ValueChanged<String> onChanged,
-    {required double width}
-  ) {
+    ValueChanged<String> onChanged, {
+    required double width,
+  }) {
     return SizedBox(
       width: width,
       child: DropdownButtonFormField<String>(
@@ -109,16 +114,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         ),
         selectedItemBuilder: (context) => options.entries
-            .map((e) => Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(e.value, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ))
+            .map(
+              (e) => Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  e.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
             .toList(),
         items: options.entries
-            .map((e) => DropdownMenuItem(
-                  value: e.key,
-                  child: Text(e.value, maxLines: 1, overflow: TextOverflow.ellipsis),
-                ))
+            .map(
+              (e) => DropdownMenuItem(
+                value: e.key,
+                child: Text(
+                  e.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
             .toList(),
         onChanged: (next) {
           if (next != null) onChanged(next);
@@ -129,132 +146,338 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildUsersTable(List<Map<String, dynamic>> users) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       children: [
-        Card(
-          clipBehavior: Clip.antiAlias,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
-              columns: const [
-                DataColumn(label: Text('Tài khoản')),
-                DataColumn(label: Text('Vai trò')),
-                DataColumn(label: Text('Trạng thái')),
-                DataColumn(label: Text('Giao dịch')),
-                DataColumn(label: Text('Ví')),
-                DataColumn(label: Text('Thao tác')),
-              ],
-              rows: users.map((user) {
-                final role = user['role']?.toString() ?? 'user';
-                final status = user['status']?.toString() ?? 'active';
-                final isAdmin = role == 'admin';
-                final hasRootMarker =
-                    user.containsKey('is_root_admin') ||
-                    user.containsKey('isRootAdmin');
-                final root =
-                    user['is_root_admin'] == true ||
-                    user['isRootAdmin'] == true ||
-                    (isAdmin && !hasRootMarker);
-                final canSuspend =
-                    user['can_suspend'] == true || user['canSuspend'] == true;
-                final canRole =
-                    user['can_change_role'] == true ||
-                    user['canChangeRole'] == true;
-                final canDelete =
-                    user['can_delete'] == true || user['canDelete'] == true;
-                final actions = <Widget>[
-                  if (canSuspend)
-                    IconButton(
-                      tooltip: status == 'active'
-                          ? 'Khóa tài khoản'
-                          : 'Mở khóa tài khoản',
-                      icon: Icon(
-                        status == 'active'
-                            ? Icons.lock_outline
-                            : Icons.lock_open,
-                        size: 18,
-                      ),
-                      onPressed: () => _toggleUserStatus(user),
-                    ),
-                  if (canRole)
-                    IconButton(
-                      tooltip: isAdmin ? 'Hạ quyền' : 'Cấp quyền admin',
-                      icon: const Icon(
-                        Icons.manage_accounts_outlined,
-                        size: 18,
-                      ),
-                      onPressed: () => _toggleUserRole(user),
-                    ),
-                  if (canDelete)
-                    IconButton(
-                      tooltip: 'Xóa tài khoản',
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        size: 18,
-                        color: Colors.red,
-                      ),
-                      onPressed: () => _deleteUser(user),
-                    ),
-                  if (root)
-                    const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text(
-                        'Root Admin',
-                        style: TextStyle(
-                          color: Color(0xFF4F46E5),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                ];
-                return DataRow(
-                  cells: [
-                    DataCell(
-                      SizedBox(
-                        width: 280,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              user['full_name']?.toString() ?? 'Người Dùng',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: WidgetStateProperty.all(const Color(0xFFEDF0F2)),
+            dataRowMinHeight: 52,
+            dataRowMaxHeight: 58,
+            horizontalMargin: 14,
+            columnSpacing: 22,
+            columns: const [
+              DataColumn(label: Text('T\u00e0i kho\u1ea3n')),
+              DataColumn(label: Text('Vai tr\u00f2')),
+              DataColumn(label: Text('Tr\u1ea1ng th\u00e1i')),
+              DataColumn(label: Text('Giao d\u1ecbch')),
+              DataColumn(label: Text('V\u00ed')),
+              DataColumn(label: Text('Thao t\u00e1c')),
+            ],
+            rows: users.map((u) {
+              final role = u['role']?.toString() ?? 'user';
+              final status = u['status']?.toString() ?? 'active';
+              final admin = role == 'admin';
+              final suspended = status == 'suspended';
+              final marker =
+                  u.containsKey('is_root_admin') ||
+                  u.containsKey('isRootAdmin');
+              final root =
+                  u['is_root_admin'] == true ||
+                  u['isRootAdmin'] == true ||
+                  (admin && !marker);
+              final edit = u['can_edit'] == true || u['canEdit'] == true;
+              final suspend =
+                  u['can_suspend'] == true || u['canSuspend'] == true;
+              final changeRole =
+                  u['can_change_role'] == true || u['canChangeRole'] == true;
+              final delete = u['can_delete'] == true || u['canDelete'] == true;
+              return DataRow(
+                cells: [
+                  DataCell(
+                    SizedBox(
+                      width: 250,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            u['full_name']?.toString() ??
+                                'Ng\u01b0\u1eddi D\u00f9ng',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _ink,
+                              fontWeight: FontWeight.w500,
                             ),
-                            Text(
-                              user['email']?.toString() ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF64748B),
-                                fontSize: 12,
-                              ),
+                          ),
+                          Text(
+                            u['email']?.toString() ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _mutedInk,
+                              fontSize: 12,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                    DataCell(Text(role.toUpperCase())),
-                    DataCell(
-                      Text(status == 'active' ? 'Hoạt động' : 'Tạm khóa'),
+                  ),
+                  DataCell(
+                    Text(
+                      root
+                          ? 'Root admin'
+                          : admin
+                          ? 'Admin'
+                          : 'User',
+                      style: TextStyle(
+                        color: root ? const Color(0xFF4F46E5) : _ink,
+                      ),
                     ),
-                    DataCell(Text('${user['transaction_count'] ?? 0}')),
-                    DataCell(Text('${user['wallet_count'] ?? 0}')),
-                    DataCell(
-                      Row(mainAxisSize: MainAxisSize.min, children: actions),
+                  ),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: suspended
+                                ? const Color(0xFFB84A4A)
+                                : const Color(0xFF27805B),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Text(
+                          suspended
+                              ? 'T\u1ea1m kh\u00f3a'
+                              : 'Ho\u1ea1t \u0111\u1ed9ng',
+                          style: TextStyle(
+                            color: suspended
+                                ? const Color(0xFF9D3C3C)
+                                : const Color(0xFF276B4F),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                );
-              }).toList(),
-            ),
+                  ),
+                  DataCell(Text('${u['transaction_count'] ?? 0}')),
+                  DataCell(Text('${u['wallet_count'] ?? 0}')),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (edit || suspend || changeRole)
+                          PopupMenuButton<String>(
+                            tooltip: 'Thao t\u00e1c t\u00e0i kho\u1ea3n',
+                            onSelected: (v) {
+                              if (v == 'edit') _showUserForm(user: u);
+                              if (v == 'status') _toggleUserStatus(u);
+                              if (v == 'role') _toggleUserRole(u);
+                            },
+                            itemBuilder: (_) => [
+                              if (edit)
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('S\u1eeda th\u00f4ng tin'),
+                                ),
+                              if (suspend)
+                                PopupMenuItem(
+                                  value: 'status',
+                                  child: Text(
+                                    suspended
+                                        ? 'M\u1edf kh\u00f3a t\u00e0i kho\u1ea3n'
+                                        : 'Kh\u00f3a t\u00e0i kho\u1ea3n',
+                                  ),
+                                ),
+                              if (changeRole)
+                                PopupMenuItem(
+                                  value: 'role',
+                                  child: Text(
+                                    admin
+                                        ? 'H\u1ea1 quy\u1ec1n xu\u1ed1ng User'
+                                        : 'C\u1ea5p quy\u1ec1n Admin',
+                                  ),
+                                ),
+                            ],
+                            icon: const Icon(Icons.more_horiz, size: 20),
+                          ),
+                        if (delete)
+                          IconButton(
+                            tooltip: 'X\u00f3a t\u00e0i kho\u1ea3n',
+                            onPressed: () => _deleteUser(u),
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              size: 18,
+                              color: Color(0xFF9D3C3C),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
           ),
         ),
       ],
     );
+  }
+
+  Future<void> _showUserForm({Map<String, dynamic>? user}) async {
+    final edit = user != null;
+    final name = TextEditingController(
+      text: user?['full_name']?.toString() ?? '',
+    );
+    final email = TextEditingController(text: user?['email']?.toString() ?? '');
+    final password = TextEditingController();
+    final key = GlobalKey<FormState>();
+    var pending = false;
+    String? error;
+    final dialogRoute = DialogRoute<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          scrollable: true,
+          title: Text(
+            edit
+                ? 'S\u1eeda t\u00e0i kho\u1ea3n'
+                : 'Th\u00eam ng\u01b0\u1eddi d\u00f9ng',
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Form(
+              key: key,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: name,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'H\u1ecd v\u00e0 t\u00ean',
+                    ),
+                    validator: (v) =>
+                        v == null ||
+                            v.trim().isEmpty ||
+                            v.trim().runes.length > 150
+                        ? 'Nh\u1eadp h\u1ecd v\u00e0 t\u00ean (t\u1ed1i \u0111a 150 k\u00fd t\u1ef1)'
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Email'),
+                    validator: (v) =>
+                        v == null ||
+                            v.trim().length > 255 ||
+                            !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                .hasMatch(v.trim())
+                        ? 'Nh\u1eadp email h\u1ee3p l\u1ec7 (t\u1ed1i \u0111a 255 k\u00fd t\u1ef1)'
+                        : null,
+                  ),
+                  if (!edit) ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: password,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'M\u1eadt kh\u1ea9u',
+                      ),
+                      validator: (v) =>
+                          v == null ||
+                              v.runes.length < 10 ||
+                              utf8.encode(v).length > 72
+                          ? 'M\u1eadt kh\u1ea9u c\u1ea7n 10 k\u00fd t\u1ef1 v\u00e0 t\u1ed1i \u0111a 72 byte'
+                          : null,
+                    ),
+                  ],
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        error!,
+                        style: const TextStyle(color: Color(0xFF9D3C3C)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: pending
+                  ? null
+                  : () => Navigator.pop(dialogContext, false),
+              child: const Text('H\u1ee7y'),
+            ),
+            FilledButton(
+              onPressed: pending
+                  ? null
+                  : () async {
+                      if (!(key.currentState?.validate() ?? false)) return;
+                      update(() {
+                        pending = true;
+                        error = null;
+                      });
+                      final api = ApiService();
+                      final result = edit
+                          ? await api.updateAdminUserProfile(
+                              user['id'].toString(),
+                              fullName: name.text.trim(),
+                              email: email.text.trim(),
+                            )
+                          : await api.createAdminUser(
+                              fullName: name.text.trim(),
+                              email: email.text.trim(),
+                              password: password.text,
+                            );
+                      if (!context.mounted) return;
+                      if (result.success) {
+                        Navigator.pop(dialogContext, true);
+                      } else {
+                        update(() {
+                          pending = false;
+                          error = result.error ?? 'Kh\u00f4ng th\u1ec3 l\u01b0u t\u00e0i kho\u1ea3n';
+                        });
+                      }
+                    },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF4F46E5),
+              ),
+              child: pending
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      edit
+                          ? 'L\u01b0u thay \u0111\u1ed5i'
+                          : 'T\u1ea1o t\u00e0i kho\u1ea3n',
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final saved = await Navigator.of(context).push(dialogRoute);
+    await dialogRoute.completed;
+    name.dispose();
+    email.dispose();
+    password.dispose();
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            edit
+                ? '\u0110\u00e3 c\u1eadp nh\u1eadt t\u00e0i kho\u1ea3n'
+                : '\u0110\u00e3 t\u1ea1o t\u00e0i kho\u1ea3n',
+          ),
+        ),
+      );
+      _loadAdminData();
+    }
   }
 
   Future<void> _toggleUserStatus(Map<String, dynamic> user) async {
@@ -415,8 +638,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               child: const Text('Hủy'),
             ),
             ElevatedButton(
-              onPressed:
-                  typedEmail.trim() == email
+              onPressed: typedEmail.trim() == email
                   ? () => Navigator.pop(ctx, true)
                   : null,
               style: ElevatedButton.styleFrom(
@@ -456,82 +678,206 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1E1B4B),
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6366F1).withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.admin_panel_settings, color: Color(0xFF818CF8), size: 22),
-            ),
-            const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'FinWise Admin Console',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 1100;
+        final page = _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: Color(0xFF4F46E5)),
+              )
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildOverviewTab(),
+                  _buildUsersTab(),
+                  _buildSystemTab(),
+                ],
+              );
+        return Scaffold(
+          backgroundColor: _paper,
+          appBar: desktop
+              ? null
+              : AppBar(
+                  backgroundColor: Colors.white,
+                  foregroundColor: _ink,
+                  elevation: 0,
+                  title: const Text(
+                    'FinWise',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
+                  ),
+                  actions: [
+                    IconButton(
+                      tooltip: 'L\u00e0m m\u1edbi s\u1ed1 li\u1ec7u',
+                      onPressed: _loadAdminData,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    IconButton(
+                      tooltip: '\u0110\u0103ng xu\u1ea5t',
+                      onPressed: _logout,
+                      icon: const Icon(Icons.logout),
+                    ),
+                  ],
+                  bottom: TabBar(
+                    controller: _tabController,
+                    labelColor: _ink,
+                    unselectedLabelColor: _mutedInk,
+                    indicatorColor: const Color(0xFF4F46E5),
+                    tabs: const [
+                      Tab(
+                        icon: Icon(Icons.speed, size: 19),
+                        text: 'T\u1ed5ng quan & AI',
+                      ),
+                      Tab(
+                        icon: Icon(Icons.people_alt_outlined, size: 19),
+                        text: 'Ng\u01b0\u1eddi D\u00f9ng',
+                      ),
+                      Tab(
+                        icon: Icon(Icons.settings_suggest_outlined, size: 19),
+                        text: 'H\u1ea1 t\u1ea7ng',
+                      ),
+                    ],
+                  ),
                 ),
-                Text(
-                  'Trung tâm Kiểm soát & Quản trị Hệ thống',
-                  style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            tooltip: 'Đăng xuất',
-            onPressed: _logout,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            tooltip: 'Làm mới số liệu',
-            onPressed: _loadAdminData,
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: const Color(0xFF94A3B8),
-          indicatorColor: const Color(0xFF818CF8),
-          indicatorWeight: 3,
-          tabs: const [
-            Tab(icon: Icon(Icons.speed, size: 20), text: 'Tổng Quan & AI'),
-            Tab(icon: Icon(Icons.people_alt_outlined, size: 20), text: 'Người Dùng'),
-            Tab(icon: Icon(Icons.settings_suggest_outlined, size: 20), text: 'Hạ Tầng'),
-          ],
+          body: desktop
+              ? Row(
+                  children: [
+                    SizedBox(
+                      width: 232,
+                      child: Material(
+                        color: Colors.white,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(24, 28, 20, 28),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.account_balance_wallet_outlined,
+                                    color: Color(0xFF4F46E5),
+                                  ),
+                                  SizedBox(width: 10),
+                                  Text(
+                                    'FinWise',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: _ink,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+                              child: Text(
+                                'Qu\u1ea3n tr\u1ecb',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: _mutedInk,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            _desktopNavItem(
+                              0,
+                              Icons.speed_outlined,
+                              'T\u1ed5ng quan & AI',
+                            ),
+                            _desktopNavItem(
+                              1,
+                              Icons.people_alt_outlined,
+                              'Ng\u01b0\u1eddi D\u00f9ng',
+                            ),
+                            _desktopNavItem(
+                              2,
+                              Icons.settings_suggest_outlined,
+                              'H\u1ea1 t\u1ea7ng',
+                            ),
+                            const Spacer(),
+                            const Divider(height: 1, color: _line),
+                            ListTile(
+                              leading: const Icon(
+                                Icons.logout,
+                                size: 19,
+                                color: _mutedInk,
+                              ),
+                              title: const Text(
+                                '\u0110\u0103ng xu\u1ea5t',
+                                style: TextStyle(color: _ink, fontSize: 14),
+                              ),
+                              onTap: _logout,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Container(
+                            height: 64,
+                            padding: const EdgeInsets.symmetric(horizontal: 28),
+                            color: Colors.white,
+                            child: Row(
+                              children: [
+                                Text(
+                                  _tabController.index == 0
+                                      ? 'T\u1ed5ng quan & AI'
+                                      : _tabController.index == 1
+                                      ? 'Ng\u01b0\u1eddi D\u00f9ng'
+                                      : 'H\u1ea1 t\u1ea7ng',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                    color: _ink,
+                                  ),
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  tooltip:
+                                      'L\u00e0m m\u1edbi s\u1ed1 li\u1ec7u',
+                                  onPressed: _loadAdminData,
+                                  icon: const Icon(
+                                    Icons.refresh,
+                                    color: _mutedInk,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(child: page),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : page,
+        );
+      },
+    );
+  }
+
+  Widget _desktopNavItem(int index, IconData icon, String label) {
+    final selected = _tabController.index == index;
+    return ListTile(
+      selected: selected,
+      selectedTileColor: const Color(0xFFF0F1FB),
+      leading: Icon(
+        icon,
+        size: 19,
+        color: selected ? const Color(0xFF4F46E5) : _mutedInk,
+      ),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: selected ? _ink : _mutedInk,
+          fontSize: 14,
+          fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
         ),
       ),
-      body: _isLoading
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Color(0xFF4F46E5)),
-                  SizedBox(height: 16),
-                  Text('Đang nạp dữ liệu Quản trị viên...', style: TextStyle(color: Color(0xFF64748B))),
-                ],
-              ),
-            )
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildOverviewTab(),
-                _buildUsersTab(),
-                _buildSystemTab(),
-              ],
-            ),
+      onTap: () => setState(() => _tabController.index = index),
     );
   }
 
@@ -654,19 +1000,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF1E1B4B), Color(0xFF312E81)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    color: Colors.white,
+                    border: Border.all(color: _line),
                     borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF1E1B4B).withValues(alpha: 0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+                    boxShadow: [],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -678,7 +1015,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             children: [
                               Icon(
                                 Icons.hub_outlined,
-                                color: Color(0xFF818CF8),
+                                color: _mutedInk,
                                 size: 20,
                               ),
                               SizedBox(width: 8),
@@ -687,7 +1024,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
-                                  color: Colors.white,
+                                  color: _ink,
                                 ),
                               ),
                             ],
@@ -703,7 +1040,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                           ? const Color(0xFF10B981)
                                           : const Color(0xFFF59E0B))
                                       .withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(6),
                               border: Border.all(
                                 color: isAiOnline
                                     ? const Color(0xFF10B981)
@@ -731,8 +1068,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                     color: isAiOnline
-                                        ? const Color(0xFF34D399)
-                                        : const Color(0xFFFCD34D),
+                                        ? const Color(0xFF276B4F)
+                                        : const Color(0xFF8A6415),
                                   ),
                                 ),
                               ],
@@ -750,7 +1087,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             ? false
                             : null,
                       ),
-                      const Divider(color: Color(0xFF4338CA), height: 16),
+                      const Divider(color: _line, height: 16),
                       _buildAiModuleRow(
                         name: 'Time-Series LSTM Forecaster',
                         desc: 'Dự báo xu hướng tài chính & dòng tiền 7 ngày tiếp theo',
@@ -760,7 +1097,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             ? false
                             : null,
                       ),
-                      const Divider(color: Color(0xFF4338CA), height: 16),
+                      const Divider(color: _line, height: 16),
                       _buildAiModuleRow(
                         name: 'EasyOCR Receipt Scanner',
                         desc:
@@ -775,7 +1112,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.25),
+                          color: const Color(0xFFF4F6F7),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -785,14 +1122,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               'Thiết bị thực thi: ${ai['device'] ?? 'Chưa có dữ liệu'} (${ai['gpu_name'] ?? 'GPU chưa báo cáo'})',
                               style: const TextStyle(
                                 fontSize: 11,
-                                color: Color(0xFFC7D2FE),
+                                color: _mutedInk,
                               ),
                             ),
                             Text(
                               'Độ trễ: ${ai['latency_ms'] ?? '—'}ms',
                               style: const TextStyle(
                                 fontSize: 11,
-                                color: Color(0xFF34D399),
+                                color: Color(0xFF276B4F),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -957,10 +1294,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: bgTint, borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(
+                  color: bgTint,
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Icon(icon, color: color, size: 18),
               ),
             ],
@@ -968,12 +1315,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           const SizedBox(height: 10),
           Text(
             value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E293B),
+            ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
-          Text(subtext, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(
+            subtext,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+          ),
         ],
       ),
     );
@@ -994,10 +1348,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               ? Icons.error_outline
               : Icons.help_outline,
           color: isLoaded == true
-              ? const Color(0xFF34D399)
+              ? const Color(0xFF27805B)
               : isLoaded == false
-              ? const Color(0xFFF87171)
-              : const Color(0xFFFBBF24),
+              ? const Color(0xFF9D3C3C)
+              : _mutedInk,
           size: 18,
         ),
         const SizedBox(width: 10),
@@ -1008,8 +1362,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               Text(
                 name,
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
+                  color: _ink,
+                  fontWeight: FontWeight.w500,
                   fontSize: 13,
                 ),
               ),
@@ -1020,7 +1374,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     : isLoaded == false
                     ? 'Chưa tải'
                     : 'Chưa có dữ liệu'}',
-                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                style: const TextStyle(color: _mutedInk, fontSize: 12),
               ),
             ],
           ),
@@ -1035,106 +1389,95 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   Widget _buildUsersTab() {
     return Column(
       children: [
-        // Thanh Tìm kiếm
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (val) {
-              setState(() {
-                _searchQuery = val;
-                _currentPage = 1;
-              });
-              _searchDebounce?.cancel();
-              _searchDebounce = Timer(
-                const Duration(milliseconds: 350),
-                _loadAdminData,
-              );
-            },
-            decoration: InputDecoration(
-              hintText: 'Tìm kiếm theo email, họ tên...',
-              prefixIcon: const Icon(
-                Icons.search,
-                color: Color(0xFF64748B),
-                size: 20,
-              ),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _searchDebounce?.cancel();
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          child: LayoutBuilder(
+            builder: (context, constraints) => Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: constraints.maxWidth > 700
+                      ? 300
+                      : constraints.maxWidth,
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
                         _currentPage = 1;
-                        _loadAdminData();
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: const Color(0xFFF1F5F9),
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 0,
-                horizontal: 16,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+                      });
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(
+                        const Duration(milliseconds: 350),
+                        _loadAdminData,
+                      );
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'T\u00ecm theo t\u00ean ho\u1eb7c email',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: _line),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: _line),
+                      ),
+                    ),
+                  ),
+                ),
+                _filterDropdown(
+                  'Vai tr\u00f2',
+                  _roleFilter,
+                  const {
+                    'all': 'T\u1ea5t c\u1ea3 vai tr\u00f2',
+                    'admin': 'Admin',
+                    'user': 'User',
+                  },
+                  (v) {
+                    setState(() {
+                      _roleFilter = v;
+                      _currentPage = 1;
+                    });
+                    _loadAdminData();
+                  },
+                  width: 170,
+                ),
+                _filterDropdown(
+                  'Tr\u1ea1ng th\u00e1i',
+                  _statusFilter,
+                  const {
+                    'all': 'T\u1ea5t c\u1ea3 tr\u1ea1ng th\u00e1i',
+                    'active': 'Ho\u1ea1t \u0111\u1ed9ng',
+                    'suspended': 'T\u1ea1m kh\u00f3a',
+                  },
+                  (v) {
+                    setState(() {
+                      _statusFilter = v;
+                      _currentPage = 1;
+                    });
+                    _loadAdminData();
+                  },
+                  width: 185,
+                ),
+                FilledButton.icon(
+                  onPressed: () => _showUserForm(),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Th\u00eam ng\u01b0\u1eddi d\u00f9ng'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-          child: LayoutBuilder(builder: (context, constraints) {
-            final fieldWidth = constraints.maxWidth < 190
-                ? constraints.maxWidth
-                : 190.0;
-            return Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-              _filterDropdown(
-                'Vai trò',
-                _roleFilter,
-                const {
-                  'all': 'Tất cả vai trò',
-                  'admin': 'Admin',
-                  'user': 'User',
-                },
-                (v) {
-                  setState(() {
-                    _roleFilter = v;
-                    _currentPage = 1;
-                  });
-                  _loadAdminData();
-                },
-                width: fieldWidth,
-              ),
-              _filterDropdown(
-                'Trạng thái',
-                _statusFilter,
-                const {
-                  'all': 'Tất cả trạng thái',
-                  'active': 'Hoạt động',
-                  'suspended': 'Tạm khóa',
-                },
-                (v) {
-                  setState(() {
-                    _statusFilter = v;
-                    _currentPage = 1;
-                  });
-                  _loadAdminData();
-                },
-                width: fieldWidth,
-              ),
-              ],
-            );
-          }),
-        ),
-
-        // Danh sách Người Dùng
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadAdminData,
@@ -1147,18 +1490,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(
-                                Icons.cloud_off_outlined,
-                                size: 40,
-                                color: Color(0xFFEF4444),
+                              const Text(
+                                'Kh\u00f4ng th\u1ec3 t\u1ea3i danh s\u00e1ch t\u00e0i kho\u1ea3n',
                               ),
-                              const SizedBox(height: 10),
-                              const Text('Không thể tải danh sách tài khoản'),
-                              const SizedBox(height: 10),
-                              OutlinedButton.icon(
+                              TextButton(
                                 onPressed: _loadAdminData,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Thử lại'),
+                                child: const Text('Th\u1eed l\u1ea1i'),
                               ),
                             ],
                           ),
@@ -1174,9 +1511,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         child: Center(
                           child: Text(
                             _users.isEmpty
-                                ? 'Chưa có tài khoản người dùng'
-                                : 'Không có tài khoản khớp bộ lọc',
-                            style: const TextStyle(color: Color(0xFF94A3B8)),
+                                ? 'Ch\u01b0a c\u00f3 t\u00e0i kho\u1ea3n ng\u01b0\u1eddi d\u00f9ng'
+                                : 'Kh\u00f4ng c\u00f3 t\u00e0i kho\u1ea3n kh\u1edbp b\u1ed9 l\u1ecdc',
+                            style: const TextStyle(color: _mutedInk),
                           ),
                         ),
                       ),
@@ -1184,384 +1521,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   )
                 : LayoutBuilder(
                     builder: (context, constraints) =>
-                        constraints.maxWidth >= 1100
+                        constraints.maxWidth >= 720
                         ? _buildUsersTable(_filteredUsers)
                         : ListView.separated(
                             padding: const EdgeInsets.all(16),
                             itemCount: _filteredUsers.length,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(height: 12),
-                            itemBuilder: (ctx, index) {
-                              final user = _filteredUsers[index];
-                              final email = user['email']?.toString() ?? '';
-                              final fullName =
-                                  user['full_name']?.toString() ?? 'Người Dùng';
-                              final role = user['role']?.toString() ?? 'user';
-                              final status =
-                                  user['status']?.toString() ?? 'active';
-                              final txCount = user['transaction_count'] ?? 0;
-
-                              final isAdmin = role == 'admin';
-                              final isSuspended = status == 'suspended';
-                              final hasRootMarker =
-                                  user.containsKey('is_root_admin') ||
-                                  user.containsKey('isRootAdmin');
-                              final isRootAdmin =
-                                  user['is_root_admin'] == true ||
-                                  user['isRootAdmin'] == true ||
-                                  (isAdmin && !hasRootMarker);
-                              final canSuspend =
-                                  user['can_suspend'] == true ||
-                                  user['canSuspend'] == true;
-                              final canChangeRole =
-                                  user['can_change_role'] == true ||
-                                  user['canChangeRole'] == true;
-                              final canDelete =
-                                  user['can_delete'] == true ||
-                                  user['canDelete'] == true;
-
-                              return Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: isSuspended
-                                        ? const Color(0xFFFCA5A5)
-                                        : Colors.transparent,
-                                    width: 1,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.03,
-                                      ),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 22,
-                                          backgroundColor: isAdmin
-                                              ? const Color(0xFF4F46E5)
-                                                    .withValues(alpha: 0.12)
-                                              : const Color(0xFF0EA5E9)
-                                                    .withValues(alpha: 0.12),
-                                          child: Icon(
-                                            isAdmin
-                                                ? Icons.shield
-                                                : Icons.person,
-                                            color: isAdmin
-                                                ? const Color(0xFF4F46E5)
-                                                : const Color(0xFF0EA5E9),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Flexible(
-                                                    child: Text(
-                                                      fullName,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 15,
-                                                        color: Color(
-                                                          0xFF1E293B,
-                                                        ),
-                                                      ),
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  // Role Badge
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 6,
-                                                          vertical: 2,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: isAdmin
-                                                          ? const Color(
-                                                              0xFFEEF2FF,
-                                                            )
-                                                          : const Color(
-                                                              0xFFF1F5F9,
-                                                            ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            6,
-                                                          ),
-                                                      border: Border.all(
-                                                        color: isAdmin
-                                                            ? const Color(
-                                                                0xFFC7D2FE,
-                                                              )
-                                                            : const Color(
-                                                                0xFFE2E8F0,
-                                                              ),
-                                                      ),
-                                                    ),
-                                                    child: Text(
-                                                      isAdmin
-                                                          ? 'ADMIN'
-                                                          : 'USER',
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: isAdmin
-                                                            ? const Color(
-                                                                0xFF4F46E5,
-                                                              )
-                                                            : const Color(
-                                                                0xFF64748B,
-                                                              ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  // Status Badge
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 6,
-                                                          vertical: 2,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: isSuspended
-                                                          ? const Color(
-                                                              0xFFFEF2F2,
-                                                            )
-                                                          : const Color(
-                                                              0xFFECFDF5,
-                                                            ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            6,
-                                                          ),
-                                                    ),
-                                                    child: Text(
-                                                      isSuspended
-                                                          ? 'TẠM KHÓA'
-                                                          : 'HOẠT ĐỘNG',
-                                                      style: TextStyle(
-                                                        fontSize: 10,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: isSuspended
-                                                            ? const Color(
-                                                                0xFFEF4444,
-                                                              )
-                                                            : const Color(
-                                                                0xFF10B981,
-                                                              ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                email,
-                                                style: const TextStyle(
-                                                  fontSize: 13,
-                                                  color: Color(0xFF64748B),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-
-                                    const SizedBox(height: 12),
-                                    const Divider(
-                                      height: 1,
-                                      color: Color(0xFFF1F5F9),
-                                    ),
-                                    const SizedBox(height: 10),
-
-                                    // Thông số giao dịch cá nhân
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Icon(
-                                              Icons.receipt_outlined,
-                                              size: 16,
-                                              color: Color(0xFF94A3B8),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              '$txCount giao dịch',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Color(0xFF64748B),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            const Icon(
-                                              Icons
-                                                  .account_balance_wallet_outlined,
-                                              size: 16,
-                                              color: Color(0xFF94A3B8),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              '${user['wallet_count'] ?? 0} ví',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Color(0xFF64748B),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-
-                                        // Thao tác (chỉ hiện nếu không phải Root Admin)
-                                        if (canSuspend ||
-                                            canChangeRole ||
-                                            canDelete)
-                                          PopupMenuButton<String>(
-                                            icon: const Icon(
-                                              Icons.more_vert,
-                                              size: 20,
-                                              color: Color(0xFF64748B),
-                                            ),
-                                            onSelected: (val) {
-                                              if (val == 'status')
-                                                _toggleUserStatus(user);
-                                              if (val == 'role')
-                                                _toggleUserRole(user);
-                                              if (val == 'delete')
-                                                _deleteUser(user);
-                                            },
-                                            itemBuilder: (ctx) => [
-                                              if (canSuspend)
-                                                PopupMenuItem(
-                                                  value: 'status',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        isSuspended
-                                                            ? Icons.lock_open
-                                                            : Icons.block,
-                                                        size: 18,
-                                                        color: isSuspended
-                                                            ? Colors.green
-                                                            : Colors.orange,
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Text(
-                                                        isSuspended
-                                                            ? 'Mở khóa tài khoản'
-                                                            : 'Khóa tài khoản',
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              if (canChangeRole)
-                                                PopupMenuItem(
-                                                  value: 'role',
-                                                  child: Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.manage_accounts,
-                                                        size: 18,
-                                                        color: Color(
-                                                          0xFF4F46E5,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Text(
-                                                        isAdmin
-                                                            ? 'Hạ cấp xuống User'
-                                                            : 'Thăng cấp Quản Trị',
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              if (canDelete)
-                                                const PopupMenuItem(
-                                                  value: 'delete',
-                                                  child: Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.delete_outline,
-                                                        size: 18,
-                                                        color: Colors.red,
-                                                      ),
-                                                      SizedBox(width: 8),
-                                                      Text(
-                                                        'Xóa tài khoản',
-                                                        style: TextStyle(
-                                                          color: Colors.red,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                            ],
-                                          )
-                                        else if (isRootAdmin)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFEEF2FF),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: const Text(
-                                              'Root Admin',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: Color(0xFF4F46E5),
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) =>
+                                _buildCompactUser(_filteredUsers[index]),
                           ),
                   ),
           ),
         ),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: _line)),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               Text(
-                '$_totalUsers tài khoản · Trang $_currentPage/${((_totalUsers - 1) ~/ _perPage + 1).clamp(1, 99999)}',
+                '$_totalUsers t\u00e0i kho\u1ea3n  \u00b7  Trang $_currentPage/${((_totalUsers - 1) ~/ _perPage + 1).clamp(1, 99999)}',
               ),
               const SizedBox(width: 12),
               IconButton(
-                tooltip: 'Trang trước',
+                tooltip: 'Trang tr\u01b0\u1edbc',
                 onPressed: _currentPage > 1
                     ? () {
                         setState(() => _currentPage--);
@@ -1584,6 +1571,128 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCompactUser(Map<String, dynamic> user) {
+    final role = user['role']?.toString() ?? 'user';
+    final status = user['status']?.toString() ?? 'active';
+    final admin = role == 'admin';
+    final suspended = status == 'suspended';
+    final edit = user['can_edit'] == true || user['canEdit'] == true;
+    final suspend = user['can_suspend'] == true || user['canSuspend'] == true;
+    final changeRole =
+        user['can_change_role'] == true || user['canChangeRole'] == true;
+    final delete = user['can_delete'] == true || user['canDelete'] == true;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _line),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user['full_name']?.toString() ??
+                          'Ng\u01b0\u1eddi D\u00f9ng',
+                      style: const TextStyle(
+                        color: _ink,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      user['email']?.toString() ?? '',
+                      style: const TextStyle(color: _mutedInk, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                enabled: edit || suspend || changeRole || delete,
+                onSelected: (value) {
+                  if (value == 'edit') _showUserForm(user: user);
+                  if (value == 'status') _toggleUserStatus(user);
+                  if (value == 'role') _toggleUserRole(user);
+                  if (value == 'delete') _deleteUser(user);
+                },
+                itemBuilder: (_) => [
+                  if (edit)
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Text('S\u1eeda th\u00f4ng tin'),
+                    ),
+                  if (suspend)
+                    PopupMenuItem(
+                      value: 'status',
+                      child: Text(
+                        suspended
+                            ? 'M\u1edf kh\u00f3a t\u00e0i kho\u1ea3n'
+                            : 'Kh\u00f3a t\u00e0i kho\u1ea3n',
+                      ),
+                    ),
+                  if (changeRole)
+                    PopupMenuItem(
+                      value: 'role',
+                      child: Text(
+                        admin
+                            ? 'H\u1ea1 quy\u1ec1n xu\u1ed1ng User'
+                            : 'C\u1ea5p quy\u1ec1n Admin',
+                      ),
+                    ),
+                  if (delete)
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Text('X\u00f3a t\u00e0i kho\u1ea3n'),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                admin ? 'Admin' : 'User',
+                style: const TextStyle(color: _ink),
+              ),
+              const SizedBox(width: 16),
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: suspended
+                      ? const Color(0xFFB84A4A)
+                      : const Color(0xFF27805B),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                suspended ? 'T\u1ea1m kh\u00f3a' : 'Ho\u1ea1t \u0111\u1ed9ng',
+                style: TextStyle(
+                  color: suspended
+                      ? const Color(0xFF9D3C3C)
+                      : const Color(0xFF276B4F),
+                  fontSize: 13,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${user['transaction_count'] ?? 0} giao d\u1ecbch  \u00b7  ${user['wallet_count'] ?? 0} v\u00ed',
+                style: const TextStyle(color: _mutedInk, fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1663,7 +1772,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     );
   }
 
-  Widget _buildInfoSection({required String title, required List<Widget> items}) {
+  Widget _buildInfoSection({
+    required String title,
+    required List<Widget> items,
+  }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1680,7 +1792,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B))),
+          Text(
+            title,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: Color(0xFF1E293B),
+            ),
+          ),
           const SizedBox(height: 12),
           ...items,
         ],
@@ -1696,12 +1815,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         children: [
           SizedBox(
             width: 140,
-            child: Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1E293B),
+              ),
             ),
           ),
         ],
