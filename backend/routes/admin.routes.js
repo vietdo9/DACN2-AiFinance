@@ -5,6 +5,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { verifyAdmin } = require('../middlewares/auth');
 const { configuredAdminEmails, configuredRootAdminEmails, isRootAdmin, isConfiguredAdminEmail, isConfiguredRootAdminEmail, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
 const { isSupabaseConfigured } = require('../config/supabase');
+const { getAdminPeriod } = require('../services/adminPeriod');
 
 const router = express.Router();
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
@@ -44,11 +45,20 @@ function mutationClient(res) {
 function validId(id) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || '')); }
 
 router.get('/overview', async (req, res) => {
+    if (req.query.period !== undefined && typeof req.query.period !== 'string') return res.status(400).json({ success:false, code:'INVALID_PERIOD', message:'Bộ lọc thời gian không hợp lệ.' });
+    if (req.query.date !== undefined && typeof req.query.date !== 'string') return res.status(400).json({ success:false, code:'INVALID_DATE', message:'Ngày lọc không hợp lệ.' });
+    const period = getAdminPeriod(req.query.period ?? 'all', req.query.date);
+    if (period.error) return res.status(400).json({ success:false, code:period.error, message:'Bộ lọc thời gian không hợp lệ.' });
     if (!requireSupabase(res)) return;
     try {
-        const { data: aggregate, error: aggregateError } = await serviceClient.rpc('admin_overview_data', {
+        const periodRpcArgs = {
             p_admin_emails: Array.from(configuredAdminEmails()), p_root_emails: Array.from(configuredRootAdminEmails())
-        });
+        };
+        const { data: aggregate, error: aggregateError } = period.type === 'all'
+            ? await serviceClient.rpc('admin_overview_data', periodRpcArgs)
+            : await serviceClient.rpc('admin_overview_data_period', {
+                ...periodRpcArgs, p_period_start: period.start_date, p_period_end: period.end_date
+            });
         if (aggregateError) throw aggregateError;
         let ai = { status: 'unknown', url: AI_SERVICE_URL, latency_ms: null, device: null, gpu_name: null,
             phobert_loaded: null, lstm_loaded: null, ocr_loaded: null, message: 'Không thể xác định trạng thái dịch vụ AI.' };
@@ -62,7 +72,7 @@ router.get('/overview', async (req, res) => {
         } catch (_) { ai = { ...ai, status: 'offline', latency_ms: Date.now()-started, message: 'AI service không phản hồi health check.' }; }
         return res.json({ success: true, data_source: 'supabase', data: {
             metrics: aggregate.metrics,
-            ai_service: ai, category_distribution: aggregate.category_distribution
+            ai_service: ai, category_distribution: aggregate.category_distribution, period
         }});
     } catch (error) { return failure(res, error, 'overview'); }
 });
