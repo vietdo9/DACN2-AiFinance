@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
@@ -62,6 +64,14 @@ Widget authenticatedDestination() {
     return const AdminDashboardScreen();
   }
   return const MainNavigationScreen();
+}
+
+Future<bool?> showAccountDeletionDialog(BuildContext context) {
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const _AccountDeletionDialog(),
+  );
 }
 
 class MainNavigationScreen extends StatefulWidget {
@@ -459,6 +469,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
     );
   }
 
+  Future<void> _handleAccountDeletion() async {
+    final deleted = await showAccountDeletionDialog(context);
+    if (deleted != true || !mounted) return;
+
+    await ApiService().logout();
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Tài khoản và dữ liệu liên quan đã được xóa.')),
+    );
+  }
+
   Widget _buildProfileScreen() {
     final user = ApiService().currentUser;
     final displayName = user?.fullName.isNotEmpty == true ? user!.fullName : 'Người Dùng FinWise';
@@ -767,8 +794,161 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
                 ),
               ),
             ),
+            if (user != null &&
+                !user.isAdmin &&
+                user.email.toLowerCase() != 'demo@finwise.vn') ...[
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _handleAccountDeletion,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Xóa tài khoản'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFB91C1C),
+                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AccountDeletionDialog extends StatefulWidget {
+  const _AccountDeletionDialog();
+
+  @override
+  State<_AccountDeletionDialog> createState() => _AccountDeletionDialogState();
+}
+
+class _AccountDeletionDialogState extends State<_AccountDeletionDialog> {
+  Timer? _countdownTimer;
+  String? _challenge;
+  String? _error;
+  int _secondsRemaining = 15;
+  bool _loadingIntent = true;
+  bool _submitting = false;
+
+  bool get _busy => _loadingIntent || _submitting;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestIntent();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _requestIntent() async {
+    _countdownTimer?.cancel();
+    setState(() {
+      _loadingIntent = true;
+      _submitting = false;
+      _challenge = null;
+      _error = null;
+      _secondsRemaining = 15;
+    });
+    final intent = await ApiService().createAccountDeletionIntent();
+    if (!mounted) return;
+    if (!intent.success || intent.challenge == null) {
+      setState(() {
+        _loadingIntent = false;
+        _error = intent.error ?? 'Không thể chuẩn bị xóa tài khoản.';
+      });
+      return;
+    }
+
+    final waitSeconds = (intent.waitSeconds ?? 15).clamp(15, 3600).toInt();
+    setState(() {
+      _loadingIntent = false;
+      _challenge = intent.challenge;
+      _secondsRemaining = waitSeconds;
+    });
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _secondsRemaining <= 0) return;
+      setState(() => _secondsRemaining--);
+      if (_secondsRemaining == 0) _countdownTimer?.cancel();
+    });
+  }
+
+  Future<void> _submit() async {
+    final challenge = _challenge;
+    if (_submitting || _loadingIntent || challenge == null || _secondsRemaining > 0) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    final result = await ApiService().deleteMyAccount(challenge: challenge);
+    if (!mounted) return;
+    if (result.success) {
+      setState(() => _submitting = false);
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _submitting = false;
+      _challenge = null;
+      _error = result.error ?? 'Không thể xóa tài khoản. Vui lòng thử lại.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_submitting,
+      child: AlertDialog(
+        scrollable: true,
+        title: const Text('Xóa tài khoản?'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Thao tác này không thể hoàn tác. Tài khoản cùng ví, giao dịch và ngân sách liên quan sẽ bị xóa vĩnh viễn.',
+              ),
+              const SizedBox(height: 12),
+              if (_loadingIntent || _submitting)
+                const Row(
+                  children: [
+                    SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                    SizedBox(width: 10),
+                    Flexible(child: Text('Đang xử lý yêu cầu...')),
+                  ],
+                )
+              else if (_challenge != null && _secondsRemaining > 0)
+                Text('Bạn có thể xác nhận sau $_secondsRemaining giây.')
+              else if (_challenge != null)
+                const Text('Thời gian chờ đã hoàn tất. Bạn có thể xác nhận xóa tài khoản.'),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: Color(0xFFB91C1C))),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _submitting ? null : () => Navigator.of(context).pop(false),
+            child: const Text('Hủy'),
+          ),
+          if (_error != null && !_busy)
+            TextButton(
+              onPressed: _requestIntent,
+              child: const Text('Thử lại'),
+            ),
+          FilledButton(
+            onPressed: _challenge != null && _secondsRemaining == 0 && !_busy ? _submit : null,
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB91C1C)),
+            child: const Text('Xóa tài khoản'),
+          ),
+        ],
       ),
     );
   }

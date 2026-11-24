@@ -23,6 +23,20 @@ class AdminActionResult {
   final String? error;
 }
 
+class AccountDeletionIntentResult {
+  const AccountDeletionIntentResult({
+    required this.success,
+    this.challenge,
+    this.waitSeconds,
+    this.error,
+  });
+
+  final bool success;
+  final String? challenge;
+  final int? waitSeconds;
+  final String? error;
+}
+
 class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
@@ -248,6 +262,85 @@ class ApiService {
       await prefs.remove('finwise_token');
       await prefs.remove('finwise_user');
     } catch (_) {}
+  }
+
+  /// Requests the short-lived, server-validated wait intent for self deletion.
+  Future<AccountDeletionIntentResult> createAccountDeletionIntent() async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/auth/me/delete-intent'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 20));
+      final payload = _decodeJsonResponse(response);
+      final data = payload['data'];
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          payload['success'] == true &&
+          data is Map<String, dynamic> &&
+          data['challenge'] is String &&
+          (data['challenge'] as String).isNotEmpty) {
+        return AccountDeletionIntentResult(
+          success: true,
+          challenge: data['challenge'] as String,
+          waitSeconds: (data['wait_seconds'] as num?)?.toInt() ?? 15,
+        );
+      }
+      return AccountDeletionIntentResult(
+        success: false,
+        error: _deletionError(payload, 'Không thể chuẩn bị xóa tài khoản.'),
+      );
+    } catch (e) {
+      return const AccountDeletionIntentResult(
+        success: false,
+        error: 'Không thể kết nối máy chủ. Vui lòng thử lại.',
+      );
+    }
+  }
+
+  /// Deletes only the authenticated account after the server validates its challenge.
+  Future<AdminActionResult> deleteMyAccount({required String challenge}) async {
+    try {
+      final response = await http
+          .delete(
+            Uri.parse('$baseUrl/api/auth/me'),
+            headers: _headers,
+            body: jsonEncode({'challenge': challenge}),
+          )
+          .timeout(const Duration(seconds: 30));
+      final payload = _decodeJsonResponse(response);
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          payload['success'] == true) {
+        return const AdminActionResult(success: true);
+      }
+      return AdminActionResult(
+        success: false,
+        error: _deletionError(payload, 'Không thể xóa tài khoản. Vui lòng thử lại.'),
+      );
+    } catch (e) {
+      return const AdminActionResult(
+        success: false,
+        error: 'Không thể kết nối máy chủ. Vui lòng thử lại.',
+      );
+    }
+  }
+
+  Map<String, dynamic> _decodeJsonResponse(http.Response response) {
+    try {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  String _deletionError(Map<String, dynamic> payload, String fallback) {
+    final structuredError = payload['error'];
+    final message = payload['message'] ??
+        (structuredError is Map<String, dynamic> ? structuredError['message'] : null);
+    return message is String && message.trim().isNotEmpty ? message : fallback;
   }
 
   /// 4. Lấy dữ liệu Thống kê Tổng quan (Độc lập theo từng tài khoản)
