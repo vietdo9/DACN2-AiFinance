@@ -9,7 +9,7 @@ const localStore = require('../config/localStore');
 const { hasAdminAuthSchema, isLegacyDefaultAdminPassword, isReservedAdminEmail, roleForUser, configuredAdminEmails, configuredRootAdminEmails } = require('../services/authPolicy');
 const { issueDeletionChallenge, validateDeletionChallenge, MIN_WAIT_MS } = require('../services/accountDeletionChallenge');
 const { recoverPendingCloudAccountCleanup } = require('../services/localDeletionRecovery');
-const { emailHash } = require('../services/localAccountCleanup');
+const { deleteCloudAccount } = require('../services/cloudAccountDeletion');
 
 // Đăng ký tài khoản
 router.post('/register', async (req, res) => {
@@ -363,52 +363,30 @@ router.delete('/me', verifyToken, async (req, res) => {
             if (!result.found) localStore.clearCloudUserWriteGuard(req.user.id);
             if (!result.found) return res.status(404).json({ success: false, message: 'Tài khoản không còn tồn tại.' });
         } else if (req.user._authSource === 'cloud' && isSupabaseConfigured() && supabaseService) {
-            // Persist a recovery marker before the destructive RPC. If the
-            // process exits after the cloud commit, startup/periodic recovery
-            // verifies that the cloud user is gone before cleaning local spillover.
-            if (localStore.isCloudAccountDeletionInFlight(req.user.id)) {
-                return res.status(409).json({ success: false, message: 'Đang xử lý yêu cầu xóa tài khoản này.' });
-            }
-            localStore.queueCloudAccountCleanup(req.user.id, req.user.email);
-            localStore.beginCloudAccountDeletion(req.user.id);
-            let rpcResult;
-            try {
-                rpcResult = await supabaseService.rpc('self_delete_account', {
+            const result = await deleteCloudAccount({
+                userId: req.user.id,
+                email: req.user.email,
+                localStore,
+                recoverPending: recoverPendingCloudAccountCleanup,
+                rpc: () => supabaseService.rpc('self_delete_account', {
                     p_user_id: req.user.id,
                     p_session_version: req.user.auth_session_version,
                     p_admin_emails: Array.from(configuredAdminEmails()),
                     p_root_emails: Array.from(configuredRootAdminEmails())
-                });
-            } catch (_) {
-                localStore.endCloudAccountDeletion(req.user.id);
-                await recoverPendingCloudAccountCleanup();
-                console.error('[!] Account deletion RPC failed: database_error');
-                return res.status(503).json({ success: false, message: 'Không thể hoàn tất xóa tài khoản. Vui lòng thử lại sau.' });
+                })
+            });
+            if (result.reason === 'in_flight') {
+                return res.status(409).json({ success: false, message: 'Đang xử lý yêu cầu xóa tài khoản này.' });
             }
-            const { data, error } = rpcResult;
-            localStore.endCloudAccountDeletion(req.user.id);
-            if (error || data?.success !== true) {
-                // Keep the durable marker until a privileged lookup confirms
-                // whether the cloud commit happened despite a transport error.
-                await recoverPendingCloudAccountCleanup();
+            if (!result.ok) {
+                if (result.reason === 'invalid_target') {
+                    return res.status(503).json({ success: false, message: 'Không thể truy cập kho dữ liệu tài khoản.' });
+                }
                 // Do not emit challenge, bearer, or personal record data to logs.
-                console.error('[!] Account deletion RPC failed:', error?.code || 'database_error');
+                console.error('[!] Account deletion RPC failed:', result.error?.code || 'database_error');
                 return res.status(503).json({ success: false, message: 'Không thể hoàn tất xóa tài khoản. Vui lòng thử lại sau.' });
             }
-
-            // Cloud identity may have local spillover from legacy offline writes
-            // and personalized category learning. Clean only rows with this ID.
-            try {
-                localStore.deleteUserData(req.user.id, {
-                    requireUser: false,
-                    removeUser: true,
-                    expectedEmailHash: emailHash(req.user.email)
-                });
-                // On an ID collision with a different local email, the cleanup
-                // helper intentionally leaves that other identity untouched.
-                localStore.completeCloudAccountCleanup(req.user.id);
-            } catch (_) {
-                // Cloud deletion is committed; the durable queue retries locally.
+            if (result.cleanupPending) {
                 return res.status(200).json({ success: true, data: { local_cleanup_pending: true } });
             }
         } else {

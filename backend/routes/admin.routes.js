@@ -6,6 +6,9 @@ const { verifyAdmin } = require('../middlewares/auth');
 const { configuredAdminEmails, configuredRootAdminEmails, isRootAdmin, isConfiguredAdminEmail, isConfiguredRootAdminEmail, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
 const { isSupabaseConfigured } = require('../config/supabase');
 const { getAdminPeriod } = require('../services/adminPeriod');
+const { deleteCloudAccount, validateAdminDeleteTarget } = require('../services/cloudAccountDeletion');
+const localStore = require('../config/localStore');
+const { recoverPendingCloudAccountCleanup } = require('../services/localDeletionRecovery');
 
 const router = express.Router();
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
@@ -207,23 +210,55 @@ router.put('/users/:id/role', async (req,res) => {
 router.delete('/users/:id', async (req,res) => {
     const client = mutationClient(res); if (!client) return;
     if (!validId(req.params.id)) return res.status(400).json({ success:false, code:'INVALID_USER_ID', message:'Mã tài khoản không hợp lệ.' });
+    const targetId = req.params.id.toLowerCase();
     if (!isRootAdmin(req.user)) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Chỉ Root Admin mới được xóa tài khoản.' });
-    if (req.params.id === req.user.id) return res.status(400).json({ success:false, code:'SELF_PROTECTION', message:'Không thể xóa tài khoản đang đăng nhập.' });
-    const confirmEmail = String(req.body?.confirm_email || '').trim().toLowerCase();
+    if (targetId === String(req.user.id).toLowerCase()) return res.status(400).json({ success:false, code:'SELF_PROTECTION', message:'Không thể xóa tài khoản đang đăng nhập.' });
+    const confirmEmail = typeof req.body?.confirm_email === 'string' ? req.body.confirm_email.trim().toLowerCase() : '';
     if (!confirmEmail) return res.status(400).json({ success:false, code:'CONFIRMATION_REQUIRED', message:'Cần xác nhận email tài khoản để xóa.' });
     try {
-        const { data, error } = await client.rpc('admin_delete_user', { p_actor_id:req.user.id,
-            p_target_id:req.params.id, p_confirm_email:confirmEmail, p_root_emails:Array.from(configuredRootAdminEmails()),
-            p_actor_session_version:Number(req.user.auth_session_version) });
-        if (error) {
-            if (/admin_migration_required|function .* does not exist|schema cache/i.test(String(error.message))) return res.status(503).json({ success:false, code:'ADMIN_MIGRATION_REQUIRED', message:'Thao tác quản trị cần migration quản trị.' });
-            if (/stale_actor_session/i.test(String(error.message))) return res.status(401).json({ success:false, code:'SESSION_REVOKED', message:'Phiên quản trị đã hết hiệu lực. Vui lòng đăng nhập lại.' });
-            if (/root_admin_required/i.test(String(error.message))) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Chỉ Root Admin mới được xóa tài khoản.' });
-            if (/target_not_found/i.test(String(error.message))) return res.status(404).json({ success:false, code:'USER_NOT_FOUND', message:'Không tìm thấy tài khoản.' });
-            if (/confirmation_mismatch|root_protection|self_protection/i.test(String(error.message))) return res.status(400).json({ success:false, code:'ADMIN_DELETE_REJECTED', message:'Xác nhận không hợp lệ hoặc tài khoản được bảo vệ.' });
+        // Resolve the cloud identity authoritatively before writing a local
+        // retry marker. A local-only/fake ID or malformed legacy identity must
+        // never schedule cleanup of matching local spillover.
+        const { data: target, error: lookupError } = await client.from('users')
+            .select('id,email').eq('id', targetId).maybeSingle();
+        if (lookupError) return failure(res, lookupError, 'lookup delete target');
+        if (!target || String(target.id || '').toLowerCase() !== targetId) {
+            return res.status(404).json({ success:false, code:'USER_NOT_FOUND', message:'Không tìm thấy tài khoản.' });
+        }
+        const targetEmail = typeof target.email === 'string' ? target.email.trim().toLowerCase() : '';
+        const validation = validateAdminDeleteTarget({ requestedId: targetId, foundId: target.id, email: target.email,
+            confirmEmail, isRootEmail: isConfiguredRootAdminEmail });
+        if (validation === 'invalid_email') return res.status(400).json({ success:false, code:'ADMIN_DELETE_REJECTED', message:'Email tài khoản không hợp lệ.' });
+        if (validation) {
+            return res.status(400).json({ success:false, code:'ADMIN_DELETE_REJECTED', message:'Xác nhận không hợp lệ hoặc tài khoản được bảo vệ.' });
+        }
+
+        const deletion = await deleteCloudAccount({
+            userId: targetId,
+            email: targetEmail,
+            localStore,
+            recoverPending: recoverPendingCloudAccountCleanup,
+            rpc: () => client.rpc('admin_delete_user', { p_actor_id:req.user.id,
+                p_target_id:targetId, p_confirm_email:confirmEmail, p_root_emails:Array.from(configuredRootAdminEmails()),
+                p_actor_session_version:Number(req.user.auth_session_version) })
+        });
+        if (deletion.reason === 'in_flight') {
+            return res.status(409).json({ success:false, code:'ADMIN_DELETE_IN_PROGRESS', message:'Đang xử lý yêu cầu xóa tài khoản này.' });
+        }
+        if (!deletion.ok) {
+            if (deletion.reason === 'invalid_target') return res.status(400).json({ success:false, code:'ADMIN_DELETE_REJECTED', message:'Email tài khoản không hợp lệ.' });
+            const { error, data } = deletion;
+            const errorMessage = String(error?.message || '');
+            if (/admin_migration_required|function .* does not exist|schema cache/i.test(errorMessage)) return res.status(503).json({ success:false, code:'ADMIN_MIGRATION_REQUIRED', message:'Thao tác quản trị cần migration quản trị.' });
+            if (/stale_actor_session/i.test(errorMessage)) return res.status(401).json({ success:false, code:'SESSION_REVOKED', message:'Phiên quản trị đã hết hiệu lực. Vui lòng đăng nhập lại.' });
+            if (/root_admin_required/i.test(errorMessage)) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Chỉ Root Admin mới được xóa tài khoản.' });
+            if (/target_not_found/i.test(errorMessage)) return res.status(404).json({ success:false, code:'USER_NOT_FOUND', message:'Không tìm thấy tài khoản.' });
+            if (/confirmation_mismatch|root_protection|self_protection/i.test(errorMessage)) return res.status(400).json({ success:false, code:'ADMIN_DELETE_REJECTED', message:'Xác nhận không hợp lệ hoặc tài khoản được bảo vệ.' });
+            if (data && data.success !== true) return res.status(400).json({ success:false, code:data.code || 'ADMIN_DELETE_REJECTED', message:'Không thể xóa tài khoản.' });
+            if (!error) return res.status(503).json({ success:false, code:'ADMIN_DATA_UNAVAILABLE', message:'Dữ liệu quản trị chưa khả dụng.' });
             throw error;
         }
-        if (!data?.success) return res.status(400).json({ success:false, code:data?.code || 'ADMIN_DELETE_REJECTED', message:'Không thể xóa tài khoản.' });
+        if (deletion.cleanupPending) return res.status(200).json({ success:true, data:{ local_cleanup_pending:true }, message:'Đã xóa tài khoản trên đám mây; dữ liệu cục bộ đang chờ dọn dẹp.' });
         return res.json({ success:true, message:'Đã xóa tài khoản và dữ liệu liên quan.' });
     } catch (error) { return failure(res,error,'delete user'); }
 });

@@ -15,6 +15,11 @@ async function recoverPendingCloudAccountCleanup() {
             try {
                 const { data, error } = await supabaseService.from('users').select('id').eq('id', userId).maybeSingle();
                 if (error) continue;
+                // A fresh deletion may have started while this lookup was in
+                // flight. Never let a stale result clear or clean its marker.
+                if (localStore.isCloudAccountDeletionInFlight(userId)) continue;
+                const current = localStore.getPendingCloudAccountCleanup().find(item => item.user_id === userId);
+                if (!current || current.email_hash !== pending.email_hash || current.retry_after_ms !== pending.retry_after_ms) continue;
                 if (data) {
                     // The RPC did not commit. Release its process-local write guard
                     // only after the authoritative lookup confirms the account stays.

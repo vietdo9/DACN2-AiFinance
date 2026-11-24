@@ -125,11 +125,9 @@ const localStore = {
     endCloudAccountDeletion: (id) => cloudDeletionInFlight.delete(id),
     isCloudAccountDeletionInFlight: (id) => cloudDeletionInFlight.has(id),
     queueCloudAccountCleanup: (id, expectedEmail) => {
-        const pending = readArray(PENDING_CLOUD_CLEANUP_FILE);
-        if (!pending.some(item => item.user_id === id)) {
-            pending.push({ user_id: id, email_hash: emailHash(expectedEmail), retry_after_ms: Date.now() + 30_000 });
-            writeArrayAtomic(PENDING_CLOUD_CLEANUP_FILE, pending);
-        }
+        const pending = readArray(PENDING_CLOUD_CLEANUP_FILE).filter(item => item.user_id !== id);
+        pending.push({ user_id: id, email_hash: emailHash(expectedEmail), retry_after_ms: Date.now() + 30_000 });
+        writeArrayAtomic(PENDING_CLOUD_CLEANUP_FILE, pending);
         setCloudDeletionGuard(id);
     },
     clearCloudAccountCleanup: (id) => {
