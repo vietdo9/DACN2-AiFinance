@@ -1,8 +1,9 @@
 const express = require('express');
 const axios = require('axios');
+const bcrypt = require('bcryptjs');
 const { createClient } = require('@supabase/supabase-js');
 const { verifyAdmin } = require('../middlewares/auth');
-const { configuredAdminEmails, configuredRootAdminEmails, isRootAdmin, isConfiguredAdminEmail, isConfiguredRootAdminEmail, roleForUser } = require('../services/authPolicy');
+const { configuredAdminEmails, configuredRootAdminEmails, isRootAdmin, isConfiguredAdminEmail, isConfiguredRootAdminEmail, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
 const { isSupabaseConfigured } = require('../config/supabase');
 
 const router = express.Router();
@@ -87,7 +88,8 @@ router.get('/users', async (req, res) => {
             data: rows.map(u => ({ ...u,
                 is_root_admin: rootEmail(u.email), can_suspend: u.id !== req.user.id && !rootEmail(u.email) && (actorIsRoot || roleForUser(u) !== 'admin'),
                 can_change_role: actorIsRoot && u.id !== req.user.id && !rootEmail(u.email) && !isConfiguredAdminEmail(u.email),
-                can_delete: actorIsRoot && u.id !== req.user.id && !rootEmail(u.email) })) });
+                can_delete: actorIsRoot && u.id !== req.user.id && !rootEmail(u.email),
+                can_edit: u.id !== req.user.id && roleForUser(u) === 'user' && !isReservedAdminEmail(u.email) })) });
     } catch (error) { return failure(res, error, 'users'); }
 });
 
@@ -117,6 +119,70 @@ async function mutate(req, res, action, targetId, value) {
         return res.json({ success:true, message:'Đã cập nhật tài khoản.', data:data.user || { id:targetId, [action]:value } });
     } catch (error) { return failure(res, error, `mutation ${action}`); }
 }
+
+function mapUserRpcError(error, res) {
+    const msg = String(error?.message || '');
+    if (/admin_migration_required|function .* does not exist|schema cache/i.test(msg)) return res.status(503).json({ success:false, code:'ADMIN_MIGRATION_REQUIRED', message:'Thao tác quản trị cần migration quản trị.' });
+    if (/stale_actor_session/i.test(msg)) return res.status(401).json({ success:false, code:'SESSION_REVOKED', message:'Phiên quản trị đã hết hiệu lực. Vui lòng đăng nhập lại.' });
+    if (/actor_not_admin/i.test(msg)) return res.status(403).json({ success:false, code:'ADMIN_PRIVILEGE_REVOKED', message:'Quyền quản trị hiện không còn hiệu lực.' });
+    if (/target_not_found/i.test(msg)) return res.status(404).json({ success:false, code:'USER_NOT_FOUND', message:'Không tìm thấy tài khoản.' });
+    if (/self_protection|protected_account/i.test(msg)) return res.status(400).json({ success:false, code:'PROTECTED_ACCOUNT', message:'Tài khoản này được bảo vệ.' });
+    if (error?.code === '23505' || /email_already_exists|unique_violation/i.test(msg)) return res.status(409).json({ success:false, code:'EMAIL_ALREADY_EXISTS', message:'Email này đã được đăng ký.' });
+    if (/reserved_email/i.test(msg)) return res.status(400).json({ success:false, code:'RESERVED_EMAIL', message:'Email này được dành riêng cho tài khoản quản trị.' });
+    if (/invalid_profile/i.test(msg)) return res.status(400).json({ success:false, code:'INVALID_PROFILE', message:'Thông tin tài khoản không hợp lệ.' });
+    return null;
+}
+
+function validProfile(fullName, email) {
+    const name = typeof fullName === 'string' ? fullName.trim() : '';
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    return name.length > 0 && name.length <= 150 && !/[\r\n\0]/.test(name) &&
+        normalizedEmail.length <= 255 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+        ? { full_name: name, email: normalizedEmail } : null;
+}
+function validNewPassword(password) {
+    return typeof password === 'string' && [...password].length >= 10 && Buffer.byteLength(password, 'utf8') <= 72;
+}
+
+router.post('/users', async (req, res) => {
+    const client = mutationClient(res); if (!client) return;
+    const profile = validProfile(req.body?.full_name, req.body?.email);
+    const password = req.body?.password;
+    if (!profile || !validNewPassword(password)) {
+        return res.status(400).json({ success:false, code:'INVALID_USER_INPUT', message:'Họ tên, email hoặc mật khẩu không hợp lệ.' });
+    }
+    if (isReservedAdminEmail(profile.email) || profile.email === 'demo@finwise.vn') return res.status(400).json({ success:false, code:'RESERVED_EMAIL', message:'Email này được dành riêng cho tài khoản quản trị.' });
+    try {
+        const passwordHash = await bcrypt.hash(password, 10);
+        const { data, error } = await client.rpc('admin_create_user', {
+            p_actor_id:req.user.id, p_email:profile.email, p_full_name:profile.full_name, p_password_hash:passwordHash,
+            p_admin_emails:Array.from(configuredAdminEmails()), p_root_emails:Array.from(configuredRootAdminEmails()),
+            p_actor_session_version:Number(req.user.auth_session_version)
+        });
+        if (error) { const mapped = mapUserRpcError(error,res); if (mapped) return mapped; throw error; }
+        if (!data?.success) return res.status(400).json({ success:false, code:data?.code || 'ADMIN_MUTATION_REJECTED', message:'Không thể tạo tài khoản.' });
+        return res.status(201).json({ success:true, data:data.user });
+    } catch (error) { return failure(res,error,'create user'); }
+});
+
+router.put('/users/:id/profile', async (req, res) => {
+    const client = mutationClient(res); if (!client) return;
+    if (!validId(req.params.id)) return res.status(400).json({ success:false, code:'INVALID_USER_ID', message:'Mã tài khoản không hợp lệ.' });
+    const profile = validProfile(req.body?.full_name, req.body?.email);
+    if (!profile) return res.status(400).json({ success:false, code:'INVALID_USER_INPUT', message:'Họ tên hoặc email không hợp lệ.' });
+    if (req.params.id === req.user.id) return res.status(400).json({ success:false, code:'SELF_PROTECTION', message:'Không thể thay đổi tài khoản đang đăng nhập.' });
+    if (isReservedAdminEmail(profile.email) || profile.email === 'demo@finwise.vn') return res.status(400).json({ success:false, code:'RESERVED_EMAIL', message:'Email này được dành riêng cho tài khoản quản trị.' });
+    try {
+        const { data, error } = await client.rpc('admin_update_user_profile', {
+            p_actor_id:req.user.id, p_target_id:req.params.id, p_email:profile.email, p_full_name:profile.full_name,
+            p_admin_emails:Array.from(configuredAdminEmails()), p_root_emails:Array.from(configuredRootAdminEmails()),
+            p_actor_session_version:Number(req.user.auth_session_version)
+        });
+        if (error) { const mapped = mapUserRpcError(error,res); if (mapped) return mapped; throw error; }
+        if (!data?.success) return res.status(400).json({ success:false, code:data?.code || 'ADMIN_MUTATION_REJECTED', message:'Không thể cập nhật tài khoản.' });
+        return res.json({ success:true, data:data.user });
+    } catch (error) { return failure(res,error,'update user profile'); }
+});
 
 router.put('/users/:id/status', async (req,res) => {
     const status = req.body?.status;
@@ -153,3 +219,6 @@ router.delete('/users/:id', async (req,res) => {
 });
 
 module.exports = router;
+module.exports.validProfile = validProfile;
+module.exports.validNewPassword = validNewPassword;
+module.exports.mapUserRpcError = mapUserRpcError;
