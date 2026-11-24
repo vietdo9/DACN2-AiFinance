@@ -18,6 +18,9 @@ void main() async {
   
   // Kiểm tra phiên đăng nhập đã lưu
   await ApiService().checkSavedSession();
+  if (kIsWeb) {
+    await ApiService().validateRestoredWebAdmin();
+  }
 
   // Khởi động lắng nghe thông báo biến động số dư (ShopeePay, MoMo, Bank)
   if (ApiService().isLoggedIn) {
@@ -46,10 +49,19 @@ class FinWiseApp extends StatelessWidget {
         fontFamily: GoogleFonts.outfit().fontFamily,
       ),
       home: ApiService().isLoggedIn
-          ? const MainNavigationScreen()
+          ? authenticatedDestination()
           : const LoginScreen(),
     );
   }
+}
+
+/// Shared destination for a successfully authenticated web session.
+Widget authenticatedDestination() {
+  final user = ApiService().currentUser;
+  if (kIsWeb && user?.isAdmin == true) {
+    return const AdminDashboardScreen();
+  }
+  return const MainNavigationScreen();
 }
 
 class MainNavigationScreen extends StatefulWidget {

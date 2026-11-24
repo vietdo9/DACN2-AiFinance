@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../services/api_service.dart';
+import 'login_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -70,6 +71,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _logout() async {
+    await ApiService().logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
   }
 
   List<Map<String, dynamic>> get _filteredUsers => _users.where((user) {
@@ -479,6 +489,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Đăng xuất',
+            onPressed: _logout,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Làm mới số liệu',

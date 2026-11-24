@@ -81,6 +81,55 @@ class ApiService {
     return false;
   }
 
+  /// Revalidates a cached web admin before allowing the admin console to open.
+  /// Returns false only when the saved credentials are explicitly rejected.
+  Future<bool> validateRestoredWebAdmin() async {
+    final cachedUser = _currentUser;
+    final token = _authToken;
+    if (cachedUser == null || token == null || !cachedUser.isAdmin) return true;
+
+    try {
+      final response = await http
+          .get(Uri.parse('$baseUrl/api/auth/me'), headers: _headers)
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await logout();
+        return false;
+      }
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(utf8.decode(response.bodyBytes));
+        final userData = payload['data']?['user'];
+        if (payload['success'] == true && userData is Map<String, dynamic>) {
+          final validatedUser = UserModel.fromJson(userData, token: token);
+          if (validatedUser.id != cachedUser.id || validatedUser.isSuspended) {
+            await logout();
+            return false;
+          }
+          if (validatedUser.isAdmin) {
+            _currentUser = validatedUser;
+            return true;
+          }
+          _currentUser = validatedUser;
+          return true;
+        }
+      }
+    } catch (e) {
+      debugPrint('[ApiService] validateRestoredWebAdmin error: $e');
+    }
+
+    // A cached admin role is never enough to grant console access during outages.
+    _currentUser = UserModel(
+      id: cachedUser.id,
+      email: cachedUser.email,
+      fullName: cachedUser.fullName,
+      avatarUrl: cachedUser.avatarUrl,
+      token: token,
+      role: 'user',
+      status: cachedUser.status,
+    );
+    return true;
+  }
+
   /// 1. Đăng ký tài khoản mới
   Future<Map<String, dynamic>> register({
     required String fullName,
