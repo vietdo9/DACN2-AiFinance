@@ -22,12 +22,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   bool _isLoading = true;
   bool _usersLoadFailed = false;
   bool _overviewLoadFailed = false;
+  bool _overviewLoading = true;
   String _roleFilter = 'all';
   String _statusFilter = 'all';
   int _currentPage = 1;
   int _totalUsers = 0;
   int _perPage = 100;
   int _loadRequestId = 0;
+  int _overviewRequestId = 0;
+  String _overviewPeriod = 'all';
+  DateTime _overviewDate = _vietnamToday();
   Timer? _searchDebounce;
   Map<String, dynamic>? _overview;
   List<Map<String, dynamic>> _users = [];
@@ -54,21 +58,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Future<void> _loadAdminData() async {
+    await Future.wait([_loadUsers(), _loadOverview()]);
+  }
+
+  Future<void> _loadUsers() async {
     final requestId = ++_loadRequestId;
     setState(() => _isLoading = _overview == null && _users.isEmpty);
-    final api = ApiService();
-    final overviewData = await api.getAdminOverview();
-    final usersResult = await api.getAdminUsers(
+    final usersResult = await ApiService().getAdminUsers(
       query: _searchQuery,
       page: _currentPage,
       role: _roleFilter,
       status: _statusFilter,
     );
-
     if (mounted && requestId == _loadRequestId) {
       setState(() {
-        _overview = overviewData;
-        _overviewLoadFailed = overviewData == null;
         _users = usersResult.users;
         _totalUsers = usersResult.total;
         _perPage = usersResult.perPage;
@@ -76,6 +79,71 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         _isLoading = false;
       });
     }
+  }
+
+  static DateTime _vietnamToday() {
+    final vietnamNow = DateTime.now().toUtc().add(const Duration(hours: 7));
+    return DateTime.utc(vietnamNow.year, vietnamNow.month, vietnamNow.day);
+  }
+
+  Future<void> _loadOverview() async {
+    final requestId = ++_overviewRequestId;
+    setState(() => _overviewLoading = true);
+    final result = await ApiService().getAdminOverview(
+      period: _overviewPeriod,
+      date: _overviewPeriod == 'all' ? null : _overviewDate,
+    );
+    if (!mounted || requestId != _overviewRequestId) return;
+    setState(() {
+      _overviewLoading = false;
+      if (result != null) _overview = result;
+      _overviewLoadFailed = result == null || !_hasMatchingPeriod(result);
+    });
+  }
+
+  DateTime _periodStart(DateTime date) {
+    final day = DateTime.utc(date.year, date.month, date.day);
+    if (_overviewPeriod == 'week') {
+      return day.subtract(Duration(days: day.weekday - DateTime.monday));
+    }
+    return DateTime.utc(day.year, day.month);
+  }
+
+  DateTime _periodEnd(DateTime date) => _overviewPeriod == 'week'
+      ? _periodStart(date).add(const Duration(days: 6))
+      : DateTime.utc(date.year, date.month + 1, 0);
+
+  String _dateKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  bool _hasMatchingPeriod(Map<String, dynamic> overview) {
+    if (_overviewPeriod == 'all') return true;
+    final period = overview['period'];
+    return period is Map &&
+        period['type'] == _overviewPeriod &&
+        period['start_date'] == _dateKey(_periodStart(_overviewDate)) &&
+        period['end_date'] == _dateKey(_periodEnd(_overviewDate));
+  }
+
+  void _changeOverviewPeriod(String period) {
+    setState(() {
+      _overviewPeriod = period;
+      final today = _vietnamToday();
+      _overviewDate = period == 'all' ? today : _periodStart(today);
+    });
+    _loadOverview();
+  }
+
+  void _shiftOverviewPeriod(int delta) {
+    if (_overviewPeriod == 'all') return;
+    final candidate = _overviewPeriod == 'week'
+        ? _overviewDate.add(Duration(days: delta * 7))
+        : DateTime.utc(_overviewDate.year, _overviewDate.month + delta, 1);
+    if (_periodStart(candidate).isAfter(_periodStart(_vietnamToday()))) return;
+    setState(() => _overviewDate = candidate);
+    _loadOverview();
   }
 
   Future<void> _logout() async {
@@ -885,42 +953,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // TAB 1: TỔNG QUAN & GIÁM SÁT AI
   // ==========================================
   Widget _buildOverviewTab() {
-    if (_overviewLoadFailed) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.cloud_off_outlined,
-              size: 42,
-              color: Color(0xFFEF4444),
-            ),
-            const SizedBox(height: 10),
-            const Text('Không thể tải số liệu tổng quan'),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _loadAdminData,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Thử lại'),
-            ),
-          ],
-        ),
-      );
-    }
     final metrics = _overview?['metrics'] ?? {};
     final ai = _overview?['ai_service'] ?? {};
-    final categories = (_overview?['category_distribution'] as List?) ?? [];
+    final categories = _overviewLoading || _overviewLoadFailed
+        ? const []
+        : ((_overview?['category_distribution'] as List?) ?? []);
 
     final totalUsers = metrics['total_users'] ?? 0;
     final activeUsers = metrics['active_users'] ?? 0;
     final totalTxs = metrics['total_transactions'] ?? 0;
     final totalVolume = (metrics['total_volume'] as num?)?.toDouble() ?? 0.0;
+    final periodLabel = switch (_overviewPeriod) {
+      'week' => 'Tuần',
+      'month' => 'Tháng',
+      _ => 'Toàn thời gian',
+    };
+    final rangeLabel = _overviewPeriod == 'all'
+        ? 'Tất cả thời gian'
+        : '${DateFormat('dd/MM/yyyy').format(_periodStart(_overviewDate))} – '
+              '${DateFormat('dd/MM/yyyy').format(_periodEnd(_overviewDate))}';
+    final canGoForward = _overviewPeriod != 'all' &&
+        _periodStart(_overviewDate).isBefore(_periodStart(_vietnamToday()));
 
     final aiStatusKnown = ai['status'] == 'online' || ai['status'] == 'offline';
     final isAiOnline = ai['status'] == 'online';
 
     return RefreshIndicator(
-      onRefresh: _loadAdminData,
+      onRefresh: _loadOverview,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Center(
@@ -929,6 +988,75 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: _line),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'all', label: Text('Tất cả')),
+                          ButtonSegment(value: 'week', label: Text('Tuần')),
+                          ButtonSegment(value: 'month', label: Text('Tháng')),
+                        ],
+                        selected: {_overviewPeriod},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (selection) =>
+                            _changeOverviewPeriod(selection.first),
+                      ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Kỳ trước',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _overviewPeriod == 'all'
+                                ? null
+                                : () => _shiftOverviewPeriod(-1),
+                            icon: const Icon(Icons.chevron_left),
+                          ),
+                          Text(
+                              _overviewPeriod == 'all'
+                                  ? rangeLabel
+                                  : '$periodLabel · $rangeLabel',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          IconButton(
+                            tooltip: 'Kỳ tiếp theo',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: canGoForward
+                                ? () => _shiftOverviewPeriod(1)
+                                : null,
+                            icon: const Icon(Icons.chevron_right),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (_overviewLoadFailed)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1F0),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Expanded(child: Text('Không thể tải số liệu kỳ này')),
+                        TextButton(onPressed: _loadOverview, child: const Text('Thử lại')),
+                      ],
+                    ),
+                  ),
                 // KPI Grid Cards
                 Row(
                   children: [
@@ -945,9 +1073,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildKpiCard(
-                        title: 'Tổng Giao Dịch',
-                        value: '$totalTxs',
-                        subtext: 'Toàn hệ thống',
+                        title: _overviewPeriod == 'all'
+                            ? 'Tổng Giao Dịch'
+                            : 'Giao Dịch · $periodLabel',
+                        value: _overviewLoading || _overviewLoadFailed
+                            ? '—'
+                            : '$totalTxs',
+                        subtext: rangeLabel,
                         icon: Icons.receipt_long,
                         color: const Color(0xFF0EA5E9),
                         bgTint: const Color(0xFFE0F2FE),
@@ -960,9 +1092,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   children: [
                     Expanded(
                       child: _buildKpiCard(
-                        title: 'Tổng Dòng Tiền',
-                        value: currencyFormat.format(totalVolume),
-                        subtext: 'Luân chuyển qua ví',
+                        title: _overviewPeriod == 'all'
+                            ? 'Tổng Dòng Tiền'
+                            : 'Dòng Tiền · $periodLabel',
+                        value: _overviewLoading || _overviewLoadFailed
+                            ? '—'
+                            : currencyFormat.format(totalVolume),
+                        subtext: rangeLabel,
                         icon: Icons.account_balance_wallet,
                         color: const Color(0xFF10B981),
                         bgTint: const Color(0xFFECFDF5),
@@ -1142,9 +1278,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
                 const SizedBox(height: 24),
 
-                // Phân bổ chi tiêu toàn hệ thống
-                const Text(
-                  'Phân Bổ Chi Tiêu Toàn Hệ Thống',
+                Text(
+                  _overviewPeriod == 'all'
+                      ? 'Phân Bổ Chi Tiêu Toàn Hệ Thống'
+                      : 'Phân Bổ Chi Tiêu · $periodLabel',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -1152,8 +1289,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Dữ liệu tổng hợp từ các giao dịch của người dùng',
+                Text(
+                  _overviewPeriod == 'all'
+                      ? 'Dữ liệu tổng hợp từ các giao dịch của người dùng'
+                      : 'Dữ liệu giao dịch trong $rangeLabel',
                   style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 12),
@@ -1165,10 +1304,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Center(
+                    child: Center(
                       child: Text(
-                        'Chưa có giao dịch chi tiêu nào để phân tích',
-                        style: TextStyle(color: Color(0xFF94A3B8)),
+                        _overviewLoading
+                            ? 'Đang tải dữ liệu giao dịch…'
+                            : _overviewLoadFailed
+                            ? 'Không thể tải phân bổ giao dịch kỳ này'
+                            : 'Chưa có giao dịch chi tiêu nào để phân tích',
+                        style: const TextStyle(color: Color(0xFF94A3B8)),
                       ),
                     ),
                   )
@@ -1411,7 +1554,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       _searchDebounce?.cancel();
                       _searchDebounce = Timer(
                         const Duration(milliseconds: 350),
-                        _loadAdminData,
+                        _loadUsers,
                       );
                     },
                     decoration: InputDecoration(
@@ -1444,7 +1587,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       _roleFilter = v;
                       _currentPage = 1;
                     });
-                    _loadAdminData();
+                    _loadUsers();
                   },
                   width: 170,
                 ),
@@ -1461,7 +1604,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       _statusFilter = v;
                       _currentPage = 1;
                     });
-                    _loadAdminData();
+                    _loadUsers();
                   },
                   width: 185,
                 ),
@@ -1480,7 +1623,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _loadAdminData,
+            onRefresh: _loadUsers,
             child: _usersLoadFailed
                 ? ListView(
                     children: [
@@ -1494,7 +1637,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                 'Kh\u00f4ng th\u1ec3 t\u1ea3i danh s\u00e1ch t\u00e0i kho\u1ea3n',
                               ),
                               TextButton(
-                                onPressed: _loadAdminData,
+                                onPressed: _loadUsers,
                                 child: const Text('Th\u1eed l\u1ea1i'),
                               ),
                             ],
@@ -1552,7 +1695,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 onPressed: _currentPage > 1
                     ? () {
                         setState(() => _currentPage--);
-                        _loadAdminData();
+                        _loadUsers();
                       }
                     : null,
                 icon: const Icon(Icons.chevron_left),
@@ -1562,7 +1705,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 onPressed: _currentPage * _perPage < _totalUsers
                     ? () {
                         setState(() => _currentPage++);
-                        _loadAdminData();
+                        _loadUsers();
                       }
                     : null,
                 icon: const Icon(Icons.chevron_right),

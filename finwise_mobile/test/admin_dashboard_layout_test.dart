@@ -17,14 +17,41 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       Uri? lastList;
+      Uri? lastOverview;
       var createdUser = false;
+      String dateKey(DateTime date) =>
+          '${date.year.toString().padLeft(4, '0')}-'
+          '${date.month.toString().padLeft(2, '0')}-'
+          '${date.day.toString().padLeft(2, '0')}';
       final client = MockClient((request) async {
         if (request.url.path.endsWith('/overview')) {
+          lastOverview = request.url;
+          final periodType = request.url.queryParameters['period'] ?? 'all';
+          final anchor = DateTime.parse(
+            request.url.queryParameters['date'] ?? '2026-11-24',
+          );
+          final start = periodType == 'week'
+              ? anchor.subtract(Duration(days: anchor.weekday - DateTime.monday))
+              : DateTime(anchor.year, anchor.month);
+          final end = periodType == 'week'
+              ? start.add(const Duration(days: 6))
+              : DateTime(anchor.year, anchor.month + 1, 0);
           return http.Response(
             jsonEncode({
               'success': true,
               'data': {
-                'metrics': {'total_users': 3, 'active_users': 3},
+                if (periodType != 'all')
+                  'period': {
+                    'type': periodType,
+                    'start_date': dateKey(start),
+                    'end_date': dateKey(end),
+                  },
+                'metrics': {
+                  'total_users': 3,
+                  'active_users': 3,
+                  'total_transactions': anchor.day,
+                  'total_volume': anchor.day * 100.0,
+                },
                 'ai_service': {'status': 'offline', 'phobert_loaded': null},
                 'category_distribution': [],
               },
@@ -80,6 +107,41 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        expect(lastOverview?.queryParameters['period'], 'all');
+        await tester.tap(find.text('Tháng'));
+        await tester.pumpAndSettle();
+        expect(lastOverview?.queryParameters['period'], 'month');
+        final currentMonth = lastOverview?.queryParameters['date'];
+        await tester.tap(find.byTooltip('Kỳ trước'));
+        await tester.pumpAndSettle();
+        expect(lastOverview?.queryParameters['date'], isNot(currentMonth));
+        await tester.tap(find.byTooltip('Kỳ tiếp theo'));
+        await tester.pumpAndSettle();
+        expect(lastOverview?.queryParameters['date'], currentMonth);
+        await tester.tap(find.text('Tuần'));
+        await tester.pumpAndSettle();
+        expect(lastOverview?.queryParameters['period'], 'week');
+        expect(lastOverview?.queryParameters['date'], matches(r'^\d{4}-\d{2}-\d{2}$'));
+        final currentWeek = lastOverview!.queryParameters['date'];
+        await tester.tap(find.byTooltip('Kỳ trước'));
+        await tester.pumpAndSettle();
+        expect(lastOverview?.queryParameters['period'], 'week');
+        expect(lastOverview?.queryParameters['date'], isNot(currentWeek));
+        await tester.tap(find.byTooltip('Kỳ tiếp theo'));
+        await tester.pumpAndSettle();
+        expect(lastOverview?.queryParameters['date'], currentWeek);
+        expect(find.text(DateTime.parse(currentWeek!).day.toString()), findsOneWidget);
+        expect(
+          tester
+              .widget<IconButton>(
+                find.byWidgetPredicate(
+                  (widget) =>
+                      widget is IconButton && widget.tooltip == 'Kỳ tiếp theo',
+                ),
+              )
+              .onPressed,
+          isNull,
+        );
         await tester.tap(find.text('Người Dùng'));
         await tester.pumpAndSettle();
         expect(find.byType(DataTable), findsOneWidget);

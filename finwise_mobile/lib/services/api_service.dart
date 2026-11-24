@@ -488,10 +488,22 @@ class ApiService {
   // ==========================================
 
   /// Lấy tổng quan hệ thống & Giám sát AI cho Quản trị viên
-  Future<Map<String, dynamic>?> getAdminOverview() async {
+  Future<Map<String, dynamic>?> getAdminOverview({
+    String period = 'all',
+    DateTime? date,
+  }) async {
     try {
+      final params = <String, String>{'period': period};
+      if (date != null && period != 'all') {
+        params['date'] = '${date.year.toString().padLeft(4, '0')}-'
+            '${date.month.toString().padLeft(2, '0')}-'
+            '${date.day.toString().padLeft(2, '0')}';
+      }
       final response = await http
-          .get(Uri.parse('$baseUrl/api/admin/overview'), headers: _headers)
+          .get(
+            Uri.parse('$baseUrl/api/admin/overview').replace(queryParameters: params),
+            headers: _headers,
+          )
           .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
