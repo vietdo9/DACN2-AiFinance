@@ -284,7 +284,9 @@ router.post('/', verifyToken, async (req, res) => {
                 created_at: new Date().toISOString()
             };
 
-            localStore.addTransaction(savedTx);
+            if (!localStore.addTransaction(savedTx)) {
+                return res.status(409).json({ success: false, message: 'Tài khoản đang được xóa. Vui lòng thử lại.' });
+            }
 
             // Cập nhật số dư ví trong local store
             const userWallets = localStore.getWallets(req.user.id);

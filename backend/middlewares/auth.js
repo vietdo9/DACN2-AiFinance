@@ -72,7 +72,7 @@ const verifyToken = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'Phiên đăng nhập không còn hợp lệ' });
         }
         if (!currentUser && decoded.id === '00000000-0000-0000-0000-000000000001' && decoded.email === 'demo@finwise.vn') {
-            req.user = { id: decoded.id, email: decoded.email, role: 'user', status: 'active', auth_session_version: 0 };
+            req.user = { id: decoded.id, email: decoded.email, role: 'user', status: 'active', auth_session_version: 0, _authSource: 'synthetic-demo' };
             return next();
         }
         if (!currentUser) {
@@ -96,7 +96,10 @@ const verifyToken = async (req, res, next) => {
             role: adminSchemaReady ? roleForUser(currentUser) : 'user',
             status: currentUser.status || 'active',
             auth_session_version: currentVersion,
-            admin_auth_version: decoded.admin_auth_version
+            admin_auth_version: decoded.admin_auth_version,
+            // This is derived from the authoritative lookup above. Never infer
+            // storage authority from a client-controlled request field.
+            _authSource: currentUser._localAuthority ? 'local' : (isSupabaseConfigured() ? 'cloud' : 'local')
         };
         return next();
     } catch (err) {

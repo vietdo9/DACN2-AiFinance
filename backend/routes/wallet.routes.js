@@ -36,7 +36,9 @@ router.get('/', verifyToken, async (req, res) => {
                 is_default: true,
                 created_at: new Date().toISOString()
             };
-            localStore.addWallet(defaultWallet);
+            if (!localStore.addWallet(defaultWallet)) {
+                return res.status(409).json({ success: false, message: 'Tài khoản đang được xóa. Vui lòng thử lại.' });
+            }
             wallets = [defaultWallet];
         }
 
@@ -89,7 +91,9 @@ router.post('/', verifyToken, async (req, res) => {
                 is_default: false,
                 created_at: new Date().toISOString()
             };
-            localStore.addWallet(newWallet);
+            if (!localStore.addWallet(newWallet)) {
+                return res.status(409).json({ success: false, message: 'Tài khoản đang được xóa. Vui lòng thử lại.' });
+            }
         }
 
         return res.status(201).json({ success: true, message: 'Tạo ví mới thành công', data: newWallet });

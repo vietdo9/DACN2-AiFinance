@@ -3,10 +3,13 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { supabase, isSupabaseConfigured } = require('../config/supabase');
+const { supabase, supabaseService, isSupabaseConfigured } = require('../config/supabase');
 const { verifyToken, JWT_SECRET } = require('../middlewares/auth');
 const localStore = require('../config/localStore');
-const { hasAdminAuthSchema, isLegacyDefaultAdminPassword, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
+const { hasAdminAuthSchema, isLegacyDefaultAdminPassword, isReservedAdminEmail, roleForUser, configuredAdminEmails, configuredRootAdminEmails } = require('../services/authPolicy');
+const { issueDeletionChallenge, validateDeletionChallenge, MIN_WAIT_MS } = require('../services/accountDeletionChallenge');
+const { recoverPendingCloudAccountCleanup } = require('../services/localDeletionRecovery');
+const { emailHash } = require('../services/localAccountCleanup');
 
 // Đăng ký tài khoản
 router.post('/register', async (req, res) => {
@@ -300,11 +303,12 @@ router.get('/me', verifyToken, async (req, res) => {
             });
         }
 
+        const { _authSource, ...publicUser } = req.user;
         return res.json({ 
             success: true, 
             data: { 
                 user: {
-                    ...req.user,
+                    ...publicUser,
                     role: roleForUser(req.user),
                     status: 'active'
                 } 
@@ -312,6 +316,109 @@ router.get('/me', verifyToken, async (req, res) => {
         });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Begin the delayed, session-bound account deletion flow.
+router.post('/me/delete-intent', verifyToken, (req, res) => {
+    if (req.user._authSource === 'synthetic-demo' || req.user.id === '00000000-0000-0000-0000-000000000001' ||
+        String(req.user.email).toLowerCase() === 'demo@finwise.vn' || req.user.role !== 'user' || isReservedAdminEmail(req.user.email)) {
+        return res.status(403).json({ success: false, message: 'Tài khoản này không thể tự xóa.' });
+    }
+    const challenge = issueDeletionChallenge({
+        userId: req.user.id,
+        sessionVersion: req.user.auth_session_version,
+        req
+    });
+    return res.status(200).json({ success: true, data: { challenge, wait_seconds: MIN_WAIT_MS / 1000 } });
+});
+
+// Delete only the identity resolved by verifyToken. The client cannot supply a
+// target ID; cloud deletion and its protected-account checks run in one RPC.
+router.delete('/me', verifyToken, async (req, res) => {
+    const challenge = req.body?.challenge;
+    if (!validateDeletionChallenge({
+        challenge,
+        userId: req.user.id,
+        sessionVersion: req.user.auth_session_version,
+        req
+    })) {
+        return res.status(400).json({ success: false, message: 'Yêu cầu xác nhận xóa không hợp lệ, đã hết hạn hoặc chưa đủ thời gian.' });
+    }
+    if (req.user._authSource === 'synthetic-demo' || req.user.id === '00000000-0000-0000-0000-000000000001' ||
+        String(req.user.email).toLowerCase() === 'demo@finwise.vn' || req.user.role !== 'user' || isReservedAdminEmail(req.user.email)) {
+        return res.status(403).json({ success: false, message: 'Tài khoản này không thể tự xóa.' });
+    }
+
+    try {
+        if (req.user._authSource === 'local') {
+            localStore.blockCloudUserWrites(req.user.id);
+            let result;
+            try {
+                result = localStore.deleteUserData(req.user.id, { requireUser: true });
+            } catch (error) {
+                localStore.clearCloudUserWriteGuard(req.user.id);
+                throw error;
+            }
+            if (!result.found) localStore.clearCloudUserWriteGuard(req.user.id);
+            if (!result.found) return res.status(404).json({ success: false, message: 'Tài khoản không còn tồn tại.' });
+        } else if (req.user._authSource === 'cloud' && isSupabaseConfigured() && supabaseService) {
+            // Persist a recovery marker before the destructive RPC. If the
+            // process exits after the cloud commit, startup/periodic recovery
+            // verifies that the cloud user is gone before cleaning local spillover.
+            if (localStore.isCloudAccountDeletionInFlight(req.user.id)) {
+                return res.status(409).json({ success: false, message: 'Đang xử lý yêu cầu xóa tài khoản này.' });
+            }
+            localStore.queueCloudAccountCleanup(req.user.id, req.user.email);
+            localStore.beginCloudAccountDeletion(req.user.id);
+            let rpcResult;
+            try {
+                rpcResult = await supabaseService.rpc('self_delete_account', {
+                    p_user_id: req.user.id,
+                    p_session_version: req.user.auth_session_version,
+                    p_admin_emails: Array.from(configuredAdminEmails()),
+                    p_root_emails: Array.from(configuredRootAdminEmails())
+                });
+            } catch (_) {
+                localStore.endCloudAccountDeletion(req.user.id);
+                await recoverPendingCloudAccountCleanup();
+                console.error('[!] Account deletion RPC failed: database_error');
+                return res.status(503).json({ success: false, message: 'Không thể hoàn tất xóa tài khoản. Vui lòng thử lại sau.' });
+            }
+            const { data, error } = rpcResult;
+            localStore.endCloudAccountDeletion(req.user.id);
+            if (error || data?.success !== true) {
+                // Keep the durable marker until a privileged lookup confirms
+                // whether the cloud commit happened despite a transport error.
+                await recoverPendingCloudAccountCleanup();
+                // Do not emit challenge, bearer, or personal record data to logs.
+                console.error('[!] Account deletion RPC failed:', error?.code || 'database_error');
+                return res.status(503).json({ success: false, message: 'Không thể hoàn tất xóa tài khoản. Vui lòng thử lại sau.' });
+            }
+
+            // Cloud identity may have local spillover from legacy offline writes
+            // and personalized category learning. Clean only rows with this ID.
+            try {
+                localStore.deleteUserData(req.user.id, {
+                    requireUser: false,
+                    removeUser: true,
+                    expectedEmailHash: emailHash(req.user.email)
+                });
+                // On an ID collision with a different local email, the cleanup
+                // helper intentionally leaves that other identity untouched.
+                localStore.completeCloudAccountCleanup(req.user.id);
+            } catch (_) {
+                // Cloud deletion is committed; the durable queue retries locally.
+                return res.status(200).json({ success: true, data: { local_cleanup_pending: true } });
+            }
+        } else {
+            return res.status(503).json({ success: false, message: 'Không thể truy cập kho dữ liệu tài khoản.' });
+        }
+        return res.status(200).json({ success: true });
+    } catch (_) {
+        // Local file parse/write failures fail closed; the account record remains
+        // until dependent data cleanup has completed.
+        return res.status(503).json({ success: false, message: 'Không thể hoàn tất xóa tài khoản. Vui lòng thử lại sau.' });
     }
 });
 

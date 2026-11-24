@@ -9,6 +9,7 @@ const transactionRoutes = require('./routes/transaction.routes');
 const aiRoutes = require('./routes/ai.routes');
 const analyticsRoutes = require('./routes/analytics.routes');
 const adminRoutes = require('./routes/admin.routes');
+const { recoverPendingCloudAccountCleanup } = require('./services/localDeletionRecovery');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -69,4 +70,6 @@ app.listen(PORT, () => {
     console.log(`[*] API Health: http://localhost:${PORT}/`);
     console.log(`[*] Kết nối AI Service: ${process.env.AI_SERVICE_URL || 'http://localhost:8000'}`);
     console.log('====================================================');
+    recoverPendingCloudAccountCleanup();
+    setInterval(recoverPendingCloudAccountCleanup, 60_000).unref();
 });

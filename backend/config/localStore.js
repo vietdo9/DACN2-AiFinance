@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { deleteUserDataFromFiles, emailHash, readArray, writeArrayAtomic } = require('../services/localAccountCleanup');
 
 const DATA_DIR = path.join(__dirname, '../data');
 const USERS_FILE = path.join(DATA_DIR, 'local_users.json');
@@ -22,7 +23,28 @@ ensureFile(WALLETS_FILE);
 ensureFile(TRANSACTIONS_FILE);
 
 const RULES_FILE = path.join(DATA_DIR, 'local_category_rules.json');
+const PENDING_CLOUD_CLEANUP_FILE = path.join(DATA_DIR, 'pending_cloud_account_cleanup.json');
 ensureFile(RULES_FILE);
+ensureFile(PENDING_CLOUD_CLEANUP_FILE);
+const cloudDeletionGuards = new Map();
+const cloudDeletionInFlight = new Set();
+const CLOUD_DELETE_GUARD_MS = 10 * 60_000;
+
+function isCloudUserWriteBlocked(userId) {
+    const blockedUntil = cloudDeletionGuards.get(userId);
+    if (!blockedUntil) return false;
+    if (blockedUntil > Date.now() || cloudDeletionInFlight.has(userId)) return true;
+    cloudDeletionGuards.delete(userId);
+    return false;
+}
+
+function setCloudDeletionGuard(id) {
+    const now = Date.now();
+    for (const [userId, blockedUntil] of cloudDeletionGuards) {
+        if (blockedUntil <= now && !cloudDeletionInFlight.has(userId)) cloudDeletionGuards.delete(userId);
+    }
+    cloudDeletionGuards.set(id, now + CLOUD_DELETE_GUARD_MS);
+}
 
 function readData(filePath) {
     try {
@@ -81,6 +103,46 @@ const localStore = {
         return null;
     },
 
+    // Removes only rows tagged with this exact ID. Each JSON file replacement is
+    // atomic and the operation is idempotent so an interrupted cleanup can retry.
+    // Related rows are written before the account row, which remains the local
+    // authority marker until all personal data has been cleaned successfully.
+    deleteUserData: (id, { requireUser = false, removeUser = true, expectedEmailHash } = {}) => {
+        return deleteUserDataFromFiles({
+            userId: id,
+            usersFile: USERS_FILE,
+            transactionsFile: TRANSACTIONS_FILE,
+            walletsFile: WALLETS_FILE,
+            rulesFile: RULES_FILE,
+            requireUser,
+            removeUser,
+            expectedEmailHash
+        });
+    },
+    blockCloudUserWrites: (id) => setCloudDeletionGuard(id),
+    clearCloudUserWriteGuard: (id) => cloudDeletionGuards.delete(id),
+    beginCloudAccountDeletion: (id) => { setCloudDeletionGuard(id); cloudDeletionInFlight.add(id); },
+    endCloudAccountDeletion: (id) => cloudDeletionInFlight.delete(id),
+    isCloudAccountDeletionInFlight: (id) => cloudDeletionInFlight.has(id),
+    queueCloudAccountCleanup: (id, expectedEmail) => {
+        const pending = readArray(PENDING_CLOUD_CLEANUP_FILE);
+        if (!pending.some(item => item.user_id === id)) {
+            pending.push({ user_id: id, email_hash: emailHash(expectedEmail), retry_after_ms: Date.now() + 30_000 });
+            writeArrayAtomic(PENDING_CLOUD_CLEANUP_FILE, pending);
+        }
+        setCloudDeletionGuard(id);
+    },
+    clearCloudAccountCleanup: (id) => {
+        cloudDeletionGuards.delete(id);
+        const pending = readArray(PENDING_CLOUD_CLEANUP_FILE).filter(value => value.user_id !== id);
+        writeArrayAtomic(PENDING_CLOUD_CLEANUP_FILE, pending);
+    },
+    completeCloudAccountCleanup: (id) => {
+        const pending = readArray(PENDING_CLOUD_CLEANUP_FILE).filter(value => value.user_id !== id);
+        writeArrayAtomic(PENDING_CLOUD_CLEANUP_FILE, pending);
+    },
+    getPendingCloudAccountCleanup: () => readArray(PENDING_CLOUD_CLEANUP_FILE),
+
 
     // WALLETS
     getWallets: (userId) => {
@@ -88,6 +150,7 @@ const localStore = {
         return wallets.filter(w => w.user_id === userId);
     },
     addWallet: (wallet) => {
+        if (isCloudUserWriteBlocked(wallet.user_id)) return null;
         const wallets = readData(WALLETS_FILE);
         wallets.push(wallet);
         writeData(WALLETS_FILE, wallets);
@@ -96,6 +159,7 @@ const localStore = {
     updateWalletBalance: (walletId, delta) => {
         const wallets = readData(WALLETS_FILE);
         const w = wallets.find(item => item.id === walletId);
+        if (w && isCloudUserWriteBlocked(w.user_id)) return null;
         if (w) {
             w.balance = (parseFloat(w.balance || 0) + parseFloat(delta)).toFixed(2);
             writeData(WALLETS_FILE, wallets);
@@ -127,6 +191,7 @@ const localStore = {
         return txs.find(t => t.id === id && t.user_id === userId);
     },
     addTransaction: (tx) => {
+        if (isCloudUserWriteBlocked(tx.user_id)) return null;
         const txs = readData(TRANSACTIONS_FILE);
         if (!tx.created_at) {
             tx.created_at = new Date().toISOString();
@@ -136,6 +201,7 @@ const localStore = {
         return tx;
     },
     updateTransaction: (id, userId, updatedFields) => {
+        if (isCloudUserWriteBlocked(userId)) return null;
         let txs = readData(TRANSACTIONS_FILE);
         const idx = txs.findIndex(t => t.id === id && t.user_id === userId);
         if (idx !== -1) {
@@ -162,6 +228,7 @@ const localStore = {
 
     // USER CATEGORY MEMORY RULES (Bộ nhớ cá nhân hóa học từ thao tác của người dùng)
     saveUserCategoryRule: (userId, keyword, categoryCode) => {
+        if (isCloudUserWriteBlocked(userId)) return;
         if (!keyword || keyword.trim().length < 2 || !categoryCode) return;
         const normKey = keyword.trim().toLowerCase();
         let rules = readData(RULES_FILE);

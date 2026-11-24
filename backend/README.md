@@ -47,6 +47,10 @@ Admin access requires a stored password hash and an explicit `role: admin` on th
 
 The `admin_audit_events` table is retained as an operational record of status, role, and deletion actions for backend/SQL review. It intentionally has no admin dashboard viewer in this release.
 
+### Self-service account deletion
+
+Apply [migrations/20261126_self_account_deletion.sql](./migrations/20261126_self_account_deletion.sql) after the admin operations migration. The self-service endpoints require a configured Supabase service-role key and the auth session-version columns from the admin migration. They enforce a 15-second confirmation delay, and the SQL function rechecks the account role, configured admin/root addresses, and current session version under a row lock. Local JSON accounts and local spillover data are cleaned by user ID; cloud spillover cleanup has a durable ID-only retry queue.
+
 The migration is additive and keeps existing user records as `role=user`, `status=active`, and session version `0`. To roll back the release, revert the backend first. Do not drop the audit table or new columns if they contain operational records; the backend can run with those additions present. JWT revocation depends on the deployed auth middleware checking `auth_session_version`: rolling back to middleware that does not check that column removes immediate revocation, and dropping the column while newer middleware is deployed can make authentication fail. Keep the column until all deployed middleware versions no longer depend on it.
 
 ---
