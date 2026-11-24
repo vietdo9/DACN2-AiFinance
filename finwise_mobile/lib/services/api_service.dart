@@ -7,6 +7,22 @@ import '../models/transaction_model.dart';
 import '../models/forecast_model.dart';
 import '../models/user_model.dart';
 
+class AdminUsersResult {
+  const AdminUsersResult({required this.users, required this.total, this.page = 1, this.perPage = 100, this.error});
+  final List<Map<String, dynamic>> users;
+  final int total;
+  final int page;
+  final int perPage;
+  final String? error;
+  bool get failed => error != null;
+}
+
+class AdminActionResult {
+  const AdminActionResult({required this.success, this.error});
+  final bool success;
+  final String? error;
+}
+
 class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
@@ -442,30 +458,47 @@ class ApiService {
   }
 
   /// Lấy danh sách toàn bộ người dùng hệ thống
-  Future<List<Map<String, dynamic>>> getAdminUsers({String? query}) async {
+  Future<AdminUsersResult> getAdminUsers({String? query, int page = 1, String? role, String? status}) async {
     try {
-      String url = '$baseUrl/api/admin/users';
+      final params = <String, String>{'page': '$page', 'per_page': '100'};
       if (query != null && query.trim().isNotEmpty) {
-        url += '?q=${Uri.encodeComponent(query.trim())}';
+        params['q'] = query.trim();
       }
+      if (role != null && role != 'all') params['role'] = role;
+      if (status != null && status != 'all') params['status'] = status;
       final response = await http
-          .get(Uri.parse(url), headers: _headers)
+          .get(Uri.parse('$baseUrl/api/admin/users').replace(queryParameters: params), headers: _headers)
           .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         if (data['success'] == true && data['data'] is List) {
-          return List<Map<String, dynamic>>.from(data['data']);
+          return AdminUsersResult(
+            users: List<Map<String, dynamic>>.from(data['data']),
+            total: (data['total'] as num?)?.toInt() ?? (data['data'] as List).length,
+            page: (data['page'] as num?)?.toInt() ?? page,
+            perPage: (data['per_page'] as num?)?.toInt() ?? 100,
+          );
         }
       }
+      return AdminUsersResult(users: const [], total: 0, page: page, error: _adminResponseMessage(response.bodyBytes, response.statusCode));
     } catch (e) {
       debugPrint('[!] getAdminUsers error: $e');
+      return AdminUsersResult(users: const [], total: 0, page: page, error: 'Không thể kết nối máy chủ quản trị.');
     }
-    return [];
+  }
+
+  String _adminResponseMessage(List<int> bodyBytes, int statusCode) {
+    try {
+      final body = jsonDecode(utf8.decode(bodyBytes));
+      final message = body['message'] ?? body['error'] ?? body['code'];
+      if (message != null && message.toString().trim().isNotEmpty) return message.toString();
+    } catch (_) {}
+    return 'Yêu cầu thất bại (HTTP $statusCode).';
   }
 
   /// Khóa hoặc mở khóa tài khoản người dùng
-  Future<bool> updateUserStatus(String userId, String status) async {
+  Future<AdminActionResult> updateUserStatus(String userId, String status) async {
     try {
       final response = await http
           .put(
@@ -475,15 +508,15 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 6));
 
-      return response.statusCode == 200;
+      return AdminActionResult(success: response.statusCode == 200, error: response.statusCode == 200 ? null : _adminResponseMessage(response.bodyBytes, response.statusCode));
     } catch (e) {
       debugPrint('[!] updateUserStatus error: $e');
-      return false;
+      return const AdminActionResult(success: false, error: 'Không thể kết nối máy chủ quản trị.');
     }
   }
 
   /// Cập nhật vai trò (user | admin)
-  Future<bool> updateUserRole(String userId, String role) async {
+  Future<AdminActionResult> updateUserRole(String userId, String role) async {
     try {
       final response = await http
           .put(
@@ -493,27 +526,28 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 6));
 
-      return response.statusCode == 200;
+      return AdminActionResult(success: response.statusCode == 200, error: response.statusCode == 200 ? null : _adminResponseMessage(response.bodyBytes, response.statusCode));
     } catch (e) {
       debugPrint('[!] updateUserRole error: $e');
-      return false;
+      return const AdminActionResult(success: false, error: 'Không thể kết nối máy chủ quản trị.');
     }
   }
 
   /// Xóa tài khoản người dùng
-  Future<bool> deleteUser(String userId) async {
+  Future<AdminActionResult> deleteUser(String userId, {required String confirmEmail}) async {
     try {
       final response = await http
           .delete(
             Uri.parse('$baseUrl/api/admin/users/$userId'),
             headers: _headers,
+            body: jsonEncode({'confirm_email': confirmEmail}),
           )
           .timeout(const Duration(seconds: 6));
 
-      return response.statusCode == 200;
+      return AdminActionResult(success: response.statusCode == 200, error: response.statusCode == 200 ? null : _adminResponseMessage(response.bodyBytes, response.statusCode));
     } catch (e) {
       debugPrint('[!] deleteUser error: $e');
-      return false;
+      return const AdminActionResult(success: false, error: 'Không thể kết nối máy chủ quản trị.');
     }
   }
 }

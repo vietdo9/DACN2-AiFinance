@@ -23,17 +23,31 @@ Backend trung tâm điều phối cho hệ sinh thái Quản lý tài chính cá
 4. Các bảng `users`, `wallets`, `categories` (sẵn 10 danh mục chuẩn PhoBERT), `transactions` sẽ được tạo tự động.
 
 ### Bước 2: Cập nhật file `.env`
-Mở mục **Project Settings -> API** trên Supabase, lấy **Project URL** và **anon public key**, sau đó điền vào file `.env`:
+Lấy **Project URL** và **service_role secret key** trong phần API của Supabase. Chỉ lưu khóa riêng tư này ở backend (ví dụ Render secret environment); tuyệt đối không đưa vào Flutter/mobile hoặc client. Backend dùng khóa này để ghi dữ liệu và gọi RPC quản trị. Không dùng publishable/anon key cho backend sau khi áp dụng migration quản trị.
 ```env
 PORT=5000
 SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_KEY=your-supabase-anon-key
-JWT_SECRET=<a unique randomly generated secret of at least 32 bytes>
+SUPABASE_KEY=your-private-service-role-key
+# Optional separate service-role key for admin RPCs
+# SUPABASE_ADMIN_KEY=<private service-role key>
+JWT_SECRET=<generate a unique random secret of at least 32 bytes>
 FINWISE_ADMIN_EMAILS=<comma-separated admin addresses, such as the provisioned admin account>
+# Leave unset until a real root account is provisioned
+# FINWISE_ROOT_ADMIN_EMAILS=<comma-separated real root account addresses>
 AI_SERVICE_URL=http://localhost:8000
 ```
 
-Admin access requires a stored password hash and an explicit `role: admin` on the user record or an address listed in `FINWISE_ADMIN_EMAILS`. The built-in admin demo credentials are disabled. Configure a unique `JWT_SECRET` before deployment; if it is unset or matches the deprecated default, the server generates an ephemeral process secret and existing sessions will need to sign in again after restart.
+Admin access requires a stored password hash and an explicit `role: admin` on the user record or an address listed in `FINWISE_ADMIN_EMAILS`. Root-only deletion and root account protection use only real accounts explicitly listed in `FINWISE_ROOT_ADMIN_EMAILS`; there is no default production root account. The fictional `root-admin@example.test` identity is reserved for disposable local/database tests only and must never be provisioned in production. The built-in admin demo credentials are disabled. Generate and configure a unique `JWT_SECRET` before deployment; if it is unset or matches the deprecated default, the server generates an ephemeral process secret and existing sessions will need to sign in again after restart.
+
+### Admin operations rollout
+
+1. Configure the private service-role key on the backend before applying the migration. The migration revokes direct user-table writes from `anon` and `authenticated`; leaving the backend on a publishable key can break registration and normal account updates.
+2. Apply [migrations/20261124_admin_operations.sql](./migrations/20261124_admin_operations.sql) in Supabase SQL Editor. It adds explicit role/status/session-version columns and service-role-only transactional admin functions plus an audit table.
+3. Deploy the backend with the private key and configured admin/root email lists. Admin list and overview endpoints use Supabase only; they return a service-unavailable response if the required schema is absent rather than mixing local and cloud records.
+
+The `admin_audit_events` table is retained as an operational record of status, role, and deletion actions for backend/SQL review. It intentionally has no admin dashboard viewer in this release.
+
+The migration is additive and keeps existing user records as `role=user`, `status=active`, and session version `0`. To roll back the release, revert the backend first. Do not drop the audit table or new columns if they contain operational records; the backend can run with those additions present. JWT revocation depends on the deployed auth middleware checking `auth_session_version`: rolling back to middleware that does not check that column removes immediate revocation, and dropping the column while newer middleware is deployed can make authentication fail. Keep the column until all deployed middleware versions no longer depend on it.
 
 ---
 

@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { supabase, isSupabaseConfigured } = require('../config/supabase');
 const { verifyToken, JWT_SECRET } = require('../middlewares/auth');
 const localStore = require('../config/localStore');
-const { isLegacyDefaultAdminPassword, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
+const { hasAdminAuthSchema, isLegacyDefaultAdminPassword, isReservedAdminEmail, roleForUser } = require('../services/authPolicy');
 
 // Đăng ký tài khoản
 router.post('/register', async (req, res) => {
@@ -22,6 +22,7 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Email này được dành riêng cho tài khoản quản trị' });
         }
         let userCreated = null;
+        let createdInLocalStore = false;
 
         // Mã hóa mật khẩu
         const salt = await bcrypt.genSalt(10);
@@ -87,6 +88,7 @@ router.post('/register', async (req, res) => {
             };
 
             localStore.addUser(localUser);
+            createdInLocalStore = true;
             localStore.addWallet({
                 id: crypto.randomUUID ? crypto.randomUUID() : `wallet-${Date.now()}`,
                 user_id: localUser.id,
@@ -107,7 +109,12 @@ router.post('/register', async (req, res) => {
         }
 
         // Ký token
-        const token = jwt.sign({ id: userCreated.id, email: userCreated.email }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({
+            id: userCreated.id,
+            email: userCreated.email,
+            sv: 0,
+            ...(createdInLocalStore ? { auth_source: 'local' } : {})
+        }, JWT_SECRET, { expiresIn: '7d' });
 
         return res.status(201).json({
             success: true,
@@ -134,6 +141,7 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không chính xác' });
         }
         let foundUser = null;
+        let authoritativeCloudUserFound = false;
 
         // 1. Tìm trong Supabase
         if (isSupabaseConfigured()) {
@@ -144,35 +152,50 @@ router.post('/login', async (req, res) => {
                     .eq('email', normalizedEmail)
                     .maybeSingle();
 
-                if (!error && user) {
+                if (error) {
+                    console.error('[!] Không thể xác minh tài khoản trên Supabase:', error.message);
+                    return res.status(503).json({ success: false, message: 'Không thể xác minh tài khoản hiện tại' });
+                }
+                if (user) {
+                    authoritativeCloudUserFound = true;
                     const isMatch = await bcrypt.compare(password, user.password_hash);
-                    if (isMatch && !(roleForUser(user) === 'admin' && isLegacyDefaultAdminPassword(password))) {
+                    const effectiveRole = hasAdminAuthSchema(user) ? roleForUser(user) : 'user';
+                    if (isMatch && !(effectiveRole === 'admin' && isLegacyDefaultAdminPassword(password))) {
                         foundUser = {
                             id: user.id,
                             email: user.email,
                             full_name: user.full_name,
-                            role: roleForUser(user),
-                            status: user.status || 'active'
+                            role: effectiveRole,
+                            status: user.status || 'active',
+                            auth_session_version: Number.isInteger(user.auth_session_version) ? user.auth_session_version : 0
                         };
                     }
                 }
             } catch (sbErr) {
-                console.warn('[!] Lỗi tìm user trên Supabase:', sbErr.message);
+                console.error('[!] Không thể xác minh tài khoản trên Supabase:', sbErr.message);
+                return res.status(503).json({ success: false, message: 'Không thể xác minh tài khoản hiện tại' });
             }
         }
 
-        // 2. Tìm trong Local Store nếu chưa tìm thấy
-        if (!foundUser) {
+        // Local-only rows remain usable when cloud lookup completes successfully but
+        // has no matching row; a cloud error above remains fail-closed. Such users
+        // are always regular users whenever cloud storage is configured.
+        if (!foundUser && !authoritativeCloudUserFound) {
             const localUser = localStore.findUserByEmail(normalizedEmail);
             if (localUser) {
                 const isMatch = await bcrypt.compare(password, localUser.password_hash);
-                if (isMatch && !(roleForUser(localUser) === 'admin' && isLegacyDefaultAdminPassword(password))) {
+                const effectiveRole = isSupabaseConfigured()
+                    ? 'user'
+                    : (hasAdminAuthSchema(localUser) ? roleForUser(localUser) : 'user');
+                if (isMatch && !(effectiveRole === 'admin' && isLegacyDefaultAdminPassword(password))) {
                     foundUser = {
                         id: localUser.id,
                         email: localUser.email,
                         full_name: localUser.full_name,
-                        role: roleForUser(localUser),
-                        status: localUser.status || 'active'
+                        role: effectiveRole,
+                        status: localUser.status || 'active',
+                        auth_session_version: Number.isInteger(localUser.auth_session_version) ? localUser.auth_session_version : 0,
+                        auth_source: 'local'
                     };
                 }
             }
@@ -185,7 +208,8 @@ router.post('/login', async (req, res) => {
                 email: 'demo@finwise.vn',
                 full_name: 'Người Dùng Demo',
                 role: 'user',
-                status: 'active'
+                status: 'active',
+                auth_session_version: 0
             };
         }
 
@@ -206,7 +230,9 @@ router.post('/login', async (req, res) => {
                 id: foundUser.id,
                 email: foundUser.email,
                 role: foundUser.role,
-                ...(foundUser.role === 'admin' ? { admin_auth_version: 2 } : {})
+                sv: foundUser.auth_session_version,
+                ...(foundUser.auth_source === 'local' ? { auth_source: 'local' } : {}),
+                ...(foundUser.role === 'admin' ? { admin_auth_version: 3 } : {})
             },
             JWT_SECRET,
             { expiresIn: '7d' }

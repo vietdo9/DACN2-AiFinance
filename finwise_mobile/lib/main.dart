@@ -531,7 +531,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
             const SizedBox(height: 16),
 
             // Banner Truy cập Admin Portal (chỉ hiện cho Quản trị viên)
-            if (user?.isAdmin == true) ...[
+            if (kIsWeb && user?.isAdmin == true) ...[
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(

@@ -1,415 +1,155 @@
 const express = require('express');
-const router = express.Router();
 const axios = require('axios');
+const { createClient } = require('@supabase/supabase-js');
 const { verifyAdmin } = require('../middlewares/auth');
-const { supabase, isSupabaseConfigured } = require('../config/supabase');
-const localStore = require('../config/localStore');
+const { configuredAdminEmails, configuredRootAdminEmails, isRootAdmin, isConfiguredAdminEmail, isConfiguredRootAdminEmail, roleForUser } = require('../services/authPolicy');
+const { isSupabaseConfigured } = require('../config/supabase');
 
+const router = express.Router();
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+function isSupabaseServiceKey(key) {
+    if (!key) return false;
+    if (key.startsWith('sb_secret_')) return true;
+    try { return JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString()).role === 'service_role'; }
+    catch (_) { return false; }
+}
+const candidateServiceKey = process.env.SUPABASE_ADMIN_KEY || process.env.SUPABASE_KEY;
+const serviceKey = isSupabaseServiceKey(candidateServiceKey) ? candidateServiceKey : null;
+const serviceClient = isSupabaseConfigured() && serviceKey
+    ? createClient(process.env.SUPABASE_URL, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+    : null;
 
-const CATEGORY_NAMES = {
-    'AN_UONG': { name: 'Ăn uống & Cà phê', color: '#F59E0B' },
-    'DI_LAI': { name: 'Di chuyển & Đi lại', color: '#3B82F6' },
-    'MUA_SAM': { name: 'Mua sắm & Đồ dùng', color: '#EC4899' },
-    'HOA_DON': { name: 'Hóa đơn & Tiện ích', color: '#8B5CF6' },
-    'NHA_O': { name: 'Nhà ở & Tiền trọ', color: '#10B981' },
-    'GIAI_TRI': { name: 'Giải trí & Sở thích', color: '#6366F1' },
-    'SUC_KHOE': { name: 'Sức khỏe & Y tế', color: '#EF4444' },
-    'HOC_TAP': { name: 'Học tập & Phát triển', color: '#14B8A6' },
-    'TIET_KIEM_DAU_TU': { name: 'Tiết kiệm & Đầu tư', color: '#06B6D4' },
-    'THU_NHAP': { name: 'Thu nhập & Lương', color: '#22C55E' }
-};
-
-// Tất cả endpoints Admin đều yêu cầu quyền Quản trị viên
 router.use(verifyAdmin);
 
-/**
- * 1. GET /api/admin/overview
- * Thống kê tổng quan hệ thống & Giám sát sức khỏe AI
- */
+function failure(res, error, context) {
+    console.error(`[admin] ${context}:`, error?.message || error);
+    return res.status(503).json({ success: false, code: 'ADMIN_DATA_UNAVAILABLE', message: 'Dữ liệu quản trị chưa khả dụng.' });
+}
+function requireSupabase(res) {
+    if (!isSupabaseConfigured() || !serviceClient) {
+        res.status(503).json({ success: false, code: 'ADMIN_MIGRATION_REQUIRED', message: 'Dữ liệu quản trị cần private service-role key và migration quản trị.' });
+        return false;
+    }
+    return true;
+}
+function rootEmail(email) { return isConfiguredRootAdminEmail(email); }
+function mutationClient(res) {
+    if (!serviceClient) {
+        res.status(503).json({ success: false, code: 'ADMIN_MIGRATION_REQUIRED', message: 'Thao tác quản trị cần Supabase service role và migration quản trị.' });
+        return null;
+    }
+    return serviceClient;
+}
+function validId(id) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || '')); }
+
 router.get('/overview', async (req, res) => {
+    if (!requireSupabase(res)) return;
     try {
-        let users = [];
-        let transactions = [];
-        let wallets = [];
-
-        // 1. Lấy dữ liệu từ Supabase Cloud nếu khả dụng
-        if (isSupabaseConfigured()) {
-            try {
-                const { data: sbUsers } = await supabase
-                    .from('users')
-                    .select('id, email, full_name, role, status, created_at');
-                if (sbUsers && sbUsers.length > 0) users = sbUsers;
-
-                const { data: sbTxs } = await supabase
-                    .from('transactions')
-                    .select('id, user_id, amount, type, category_code, transaction_date');
-                if (sbTxs && sbTxs.length > 0) transactions = sbTxs;
-
-                const { data: sbWallets } = await supabase
-                    .from('wallets')
-                    .select('id, user_id, balance');
-                if (sbWallets && sbWallets.length > 0) wallets = sbWallets;
-            } catch (err) {
-                console.warn('[!] Admin overview: Supabase error, falling back to local store:', err.message);
-            }
-        }
-
-        // 2. Fallback / Merge với Local Store
-        if (users.length === 0) {
-            users = localStore.getUsers().map(u => ({
-                id: u.id,
-                email: u.email,
-                full_name: u.full_name,
-                role: u.role || (u.email === 'admin@finwise.com' || u.email === 'admin@finwise.vn' ? 'admin' : 'user'),
-                status: u.status || 'active',
-                created_at: u.created_at
-            }));
-        }
-
-        // Đảm bảo có tài khoản Admin mặc định trong danh sách thống kê nếu chưa có
-        if (!users.some(u => u.email === 'admin@finwise.com')) {
-            users.unshift({
-                id: 'admin-00000000-0000-0000-0000-000000000001',
-                email: 'admin@finwise.com',
-                full_name: 'Quản Trị Viên Hệ Thống',
-                role: 'admin',
-                status: 'active',
-                created_at: '2026-01-01T00:00:00.000Z'
-            });
-        }
-
-        if (transactions.length === 0) {
-            transactions = localStore.getAllTransactions();
-        }
-        if (wallets.length === 0) {
-            wallets = localStore.getAllWallets();
-        }
-
-        // 3. Tính toán KPI Metrics
-        const totalUsers = users.length;
-        const activeUsers = users.filter(u => u.status !== 'suspended').length;
-        const suspendedUsers = users.filter(u => u.status === 'suspended').length;
-        const adminUsers = users.filter(u => u.role === 'admin').length;
-
-        const totalTransactions = transactions.length;
-        let totalIncome = 0;
-        let totalExpense = 0;
-
-        // Phân bổ danh mục toàn hệ thống
-        const categoryMap = {};
-        transactions.forEach(t => {
-            const amount = parseFloat(t.amount || 0);
-            if (t.type === 'income') {
-                totalIncome += amount;
-            } else {
-                totalExpense += amount;
-                const cat = t.category_code || 'AN_UONG';
-                if (!categoryMap[cat]) {
-                    categoryMap[cat] = { count: 0, amount: 0 };
-                }
-                categoryMap[cat].count += 1;
-                categoryMap[cat].amount += amount;
-            }
+        const { data: aggregate, error: aggregateError } = await serviceClient.rpc('admin_overview_data', {
+            p_admin_emails: Array.from(configuredAdminEmails()), p_root_emails: Array.from(configuredRootAdminEmails())
         });
-
-        const totalVolume = totalIncome + totalExpense;
-
-        const categoryDistribution = Object.keys(categoryMap).map(code => {
-            const meta = CATEGORY_NAMES[code] || { name: code, color: '#64748B' };
-            const amount = categoryMap[code].amount;
-            const percent = totalExpense > 0 ? ((amount / totalExpense) * 100).toFixed(1) : 0;
-            return {
-                code,
-                name: meta.name,
-                color: meta.color,
-                count: categoryMap[code].count,
-                amount,
-                percent: parseFloat(percent)
-            };
-        }).sort((a, b) => b.amount - a.amount);
-
-        // 4. Kiểm tra sức khỏe AI Microservice (PhoBERT, LSTM, OCR)
-        let aiHealth = {
-            status: 'standby',
-            url: AI_SERVICE_URL,
-            latency_ms: 0,
-            device: 'CPU',
-            gpu_name: 'None',
-            phobert_loaded: true,
-            lstm_loaded: true,
-            ocr_loaded: true,
-            message: 'AI Service đang sẵn sàng'
-        };
-
-        const startTime = Date.now();
+        if (aggregateError) throw aggregateError;
+        let ai = { status: 'unknown', url: AI_SERVICE_URL, latency_ms: null, device: null, gpu_name: null,
+            phobert_loaded: null, lstm_loaded: null, ocr_loaded: null, message: 'Không thể xác định trạng thái dịch vụ AI.' };
+        const started = Date.now();
         try {
-            const aiRes = await axios.get(`${AI_SERVICE_URL}/health`, { timeout: 2500 });
-            aiHealth = {
-                status: 'online',
-                url: AI_SERVICE_URL,
-                latency_ms: Date.now() - startTime,
-                device: aiRes.data.device || 'CPU/CUDA',
-                gpu_name: aiRes.data.gpu_name || 'Tự động nhận diện',
-                phobert_loaded: !!aiRes.data.phobert_loaded,
-                lstm_loaded: !!aiRes.data.lstm_loaded,
-                ocr_loaded: !!aiRes.data.ocr_loaded,
-                message: 'Kết nối AI Microservice thành công'
-            };
-        } catch (aiErr) {
-            aiHealth = {
-                status: 'standby',
-                url: AI_SERVICE_URL,
-                latency_ms: Date.now() - startTime,
-                device: 'CPU Fallback',
-                gpu_name: 'N/A',
-                phobert_loaded: true,
-                lstm_loaded: true,
-                ocr_loaded: true,
-                message: 'AI Microservice cục bộ đang ở chế độ chờ (Standby Mode)'
-            };
-        }
-
-        return res.json({
-            success: true,
-            data: {
-                metrics: {
-                    total_users: totalUsers,
-                    active_users: activeUsers,
-                    suspended_users: suspendedUsers,
-                    admin_users: adminUsers,
-                    total_transactions: totalTransactions,
-                    total_volume: totalVolume,
-                    total_income: totalIncome,
-                    total_expense: totalExpense,
-                    total_wallets: wallets.length
-                },
-                ai_service: aiHealth,
-                category_distribution: categoryDistribution
-            }
-        });
-    } catch (err) {
-        console.error('[!] Lỗi Admin Overview:', err);
-        return res.status(500).json({ success: false, message: 'Lỗi tổng hợp dữ liệu Quản trị viên: ' + err.message });
-    }
+            const response = await axios.get(`${AI_SERVICE_URL}/health`, { timeout: 2500 });
+            ai = { status: 'online', url: AI_SERVICE_URL, latency_ms: Date.now()-started,
+                device: response.data.device ?? null, gpu_name: response.data.gpu_name ?? null,
+                phobert_loaded: response.data.phobert_loaded ?? null, lstm_loaded: response.data.lstm_loaded ?? null,
+                ocr_loaded: response.data.ocr_loaded ?? null, message: 'AI service phản hồi health check.' };
+        } catch (_) { ai = { ...ai, status: 'offline', latency_ms: Date.now()-started, message: 'AI service không phản hồi health check.' }; }
+        return res.json({ success: true, data_source: 'supabase', data: {
+            metrics: aggregate.metrics,
+            ai_service: ai, category_distribution: aggregate.category_distribution
+        }});
+    } catch (error) { return failure(res, error, 'overview'); }
 });
 
-/**
- * 2. GET /api/admin/users
- * Danh sách toàn bộ người dùng và số liệu hoạt động cá nhân
- */
 router.get('/users', async (req, res) => {
+    if (!requireSupabase(res)) return;
+    const page = Math.max(1, Math.min(100000, parseInt(req.query.page, 10) || 1));
+    const perPage = Math.max(1, Math.min(100, parseInt(req.query.per_page, 10) || 20));
+    const query = String(req.query.q || '').trim().slice(0, 100);
+    if (req.query.role && !['admin','user'].includes(req.query.role)) return res.status(400).json({ success:false, code:'INVALID_ROLE_FILTER', message:'Bộ lọc vai trò không hợp lệ.' });
+    if (req.query.status && !['active','suspended'].includes(req.query.status)) return res.status(400).json({ success:false, code:'INVALID_STATUS_FILTER', message:'Bộ lọc trạng thái không hợp lệ.' });
+    const role = req.query.role || null;
+    const status = req.query.status || null;
     try {
-        const query = (req.query.q || '').trim().toLowerCase();
-        let users = [];
-        let transactions = [];
-        let wallets = [];
-
-        // 1. Supabase
-        if (isSupabaseConfigured()) {
-            try {
-                const { data: sbUsers } = await supabase
-                    .from('users')
-                    .select('id, email, full_name, role, status, created_at');
-                if (sbUsers && sbUsers.length > 0) users = sbUsers;
-
-                const { data: sbTxs } = await supabase
-                    .from('transactions')
-                    .select('user_id, amount, type');
-                if (sbTxs && sbTxs.length > 0) transactions = sbTxs;
-
-                const { data: sbWallets } = await supabase
-                    .from('wallets')
-                    .select('user_id, balance');
-                if (sbWallets && sbWallets.length > 0) wallets = sbWallets;
-            } catch (_) {}
-        }
-
-        // 2. Fallback Local
-        if (users.length === 0) {
-            users = localStore.getUsers().map(u => ({
-                id: u.id,
-                email: u.email,
-                full_name: u.full_name,
-                role: u.role || (u.email === 'admin@finwise.com' || u.email === 'admin@finwise.vn' ? 'admin' : 'user'),
-                status: u.status || 'active',
-                created_at: u.created_at
-            }));
-        }
-
-        // Đảm bảo có tài khoản Admin mặc định
-        if (!users.some(u => u.email === 'admin@finwise.com')) {
-            users.unshift({
-                id: 'admin-00000000-0000-0000-0000-000000000001',
-                email: 'admin@finwise.com',
-                full_name: 'Quản Trị Viên Hệ Thống',
-                role: 'admin',
-                status: 'active',
-                created_at: '2026-01-01T00:00:00.000Z'
-            });
-        }
-
-        if (transactions.length === 0) {
-            transactions = localStore.getAllTransactions();
-        }
-        if (wallets.length === 0) {
-            wallets = localStore.getAllWallets();
-        }
-
-        // 3. Ghép số liệu thống kê cho từng User
-        const enrichedUsers = users.map(u => {
-            const userTxs = transactions.filter(t => t.user_id === u.id);
-            const userWallets = wallets.filter(w => w.user_id === u.id);
-            const totalSpent = userTxs
-                .filter(t => t.type === 'expense')
-                .reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-
-            return {
-                id: u.id,
-                email: u.email,
-                full_name: u.full_name || u.email.split('@')[0],
-                role: u.role || (u.email === 'admin@finwise.com' || u.email === 'admin@finwise.vn' ? 'admin' : 'user'),
-                status: u.status || 'active',
-                created_at: u.created_at,
-                transaction_count: userTxs.length,
-                total_spent: totalSpent,
-                wallet_count: userWallets.length
-            };
+        const { data: pageData, error } = await serviceClient.rpc('admin_users_page', {
+            p_page: page, p_per_page: perPage, p_query: query || null, p_role: role, p_status: status,
+            p_admin_emails: Array.from(configuredAdminEmails()), p_root_emails: Array.from(configuredRootAdminEmails())
         });
-
-        // 4. Lọc tìm kiếm nếu có
-        let filtered = enrichedUsers;
-        if (query) {
-            filtered = enrichedUsers.filter(u =>
-                u.email.toLowerCase().includes(query) ||
-                u.full_name.toLowerCase().includes(query)
-            );
-        }
-
-        return res.json({
-            success: true,
-            total: filtered.length,
-            data: filtered
-        });
-    } catch (err) {
-        console.error('[!] Lỗi lấy danh sách User:', err);
-        return res.status(500).json({ success: false, message: err.message });
-    }
+        if (error) throw error;
+        const rows = pageData?.users || [];
+        const actorIsRoot = isRootAdmin(req.user);
+        return res.json({ success: true, data_source: 'supabase', page, per_page: perPage, total: pageData?.total || 0,
+            data: rows.map(u => ({ ...u,
+                is_root_admin: rootEmail(u.email), can_suspend: u.id !== req.user.id && !rootEmail(u.email) && (actorIsRoot || roleForUser(u) !== 'admin'),
+                can_change_role: actorIsRoot && u.id !== req.user.id && !rootEmail(u.email) && !isConfiguredAdminEmail(u.email),
+                can_delete: actorIsRoot && u.id !== req.user.id && !rootEmail(u.email) })) });
+    } catch (error) { return failure(res, error, 'users'); }
 });
 
-/**
- * 3. PUT /api/admin/users/:id/status
- * Khóa hoặc Mở khóa tài khoản (active | suspended)
- */
-router.put('/users/:id/status', async (req, res) => {
+async function mutate(req, res, action, targetId, value) {
+    const client = mutationClient(res); if (!client) return;
+    if (!validId(targetId)) return res.status(400).json({ success:false, code:'INVALID_USER_ID', message:'Mã tài khoản không hợp lệ.' });
+    const actorIsRoot = isRootAdmin(req.user);
+    if (action === 'role' && !actorIsRoot) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Chỉ Root Admin mới được thay đổi vai trò.' });
+    if (targetId === req.user.id) return res.status(400).json({ success: false, code: 'SELF_PROTECTION', message: 'Không thể thay đổi tài khoản đang đăng nhập.' });
     try {
-        const { id } = req.params;
-        const { status } = req.body;
-
-        if (!['active', 'suspended'].includes(status)) {
-            return res.status(400).json({ success: false, message: 'Trạng thái không hợp lệ (chỉ chấp nhận active hoặc suspended)' });
-        }
-
-        // Không cho phép khóa tài khoản root admin
-        if (id === 'admin-00000000-0000-0000-0000-000000000001' || req.user.id === id) {
-            return res.status(400).json({ success: false, message: 'Không thể khóa tài khoản Quản trị viên đang đăng nhập!' });
-        }
-
-        // 1. Cập nhật Supabase
-        if (isSupabaseConfigured()) {
-            try {
-                await supabase
-                    .from('users')
-                    .update({ status })
-                    .eq('id', id);
-            } catch (_) {}
-        }
-
-        // 2. Cập nhật Local Store
-        localStore.updateUser(id, { status });
-
-        return res.json({
-            success: true,
-            message: status === 'suspended' ? 'Đã tạm khóa tài khoản người dùng thành công' : 'Đã kích hoạt lại tài khoản thành công',
-            data: { id, status }
+        const { data, error } = await client.rpc('admin_mutate_user', {
+            p_actor_id: req.user.id, p_target_id: targetId, p_action: action, p_value: value,
+            p_root_emails: Array.from(configuredRootAdminEmails()), p_admin_emails: Array.from(configuredAdminEmails()),
+            p_actor_session_version: Number(req.user.auth_session_version)
         });
-    } catch (err) {
-        return res.status(500).json({ success: false, message: err.message });
-    }
+        if (error) {
+            const msg = String(error.message || '');
+            if (/admin_migration_required|function .* does not exist|schema cache/i.test(msg)) return res.status(503).json({ success:false, code:'ADMIN_MIGRATION_REQUIRED', message:'Thao tác quản trị cần migration quản trị.' });
+            if (/stale_actor_session/i.test(msg)) return res.status(401).json({ success:false, code:'SESSION_REVOKED', message:'Phiên quản trị đã hết hiệu lực. Vui lòng đăng nhập lại.' });
+            if (/actor_not_admin/i.test(msg)) return res.status(403).json({ success:false, code:'ADMIN_PRIVILEGE_REVOKED', message:'Quyền quản trị hiện không còn hiệu lực.' });
+            if (/root_admin_required|configured_admin_protected/i.test(msg)) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Thao tác cần quyền Root Admin.' });
+            if (/target_not_found/i.test(msg)) return res.status(404).json({ success:false, code:'USER_NOT_FOUND', message:'Không tìm thấy tài khoản.' });
+            if (/self_protection|root_protection/i.test(msg)) return res.status(400).json({ success:false, code:'PROTECTED_ACCOUNT', message:'Tài khoản này được bảo vệ.' });
+            throw error;
+        }
+        if (!data?.success) return res.status(400).json({ success:false, code:data?.code || 'ADMIN_MUTATION_REJECTED', message:'Thao tác quản trị bị từ chối.' });
+        return res.json({ success:true, message:'Đã cập nhật tài khoản.', data:data.user || { id:targetId, [action]:value } });
+    } catch (error) { return failure(res, error, `mutation ${action}`); }
+}
+
+router.put('/users/:id/status', async (req,res) => {
+    const status = req.body?.status;
+    if (!['active','suspended'].includes(status)) return res.status(400).json({ success:false, code:'INVALID_STATUS', message:'Trạng thái không hợp lệ.' });
+    return mutate(req,res,'status',req.params.id,status);
 });
-
-/**
- * 4. PUT /api/admin/users/:id/role
- * Thay đổi vai trò người dùng (user | admin)
- */
-router.put('/users/:id/role', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { role } = req.body;
-
-        if (!['user', 'admin'].includes(role)) {
-            return res.status(400).json({ success: false, message: 'Vai trò không hợp lệ (chỉ chấp nhận user hoặc admin)' });
-        }
-
-        // Không thể giáng cấp root admin
-        if (id === 'admin-00000000-0000-0000-0000-000000000001') {
-            return res.status(400).json({ success: false, message: 'Không thể thay đổi quyền của Quản trị viên gốc (Root Admin)' });
-        }
-
-        // 1. Cập nhật Supabase
-        if (isSupabaseConfigured()) {
-            try {
-                await supabase
-                    .from('users')
-                    .update({ role })
-                    .eq('id', id);
-            } catch (_) {}
-        }
-
-        // 2. Cập nhật Local Store
-        localStore.updateUser(id, { role });
-
-        return res.json({
-            success: true,
-            message: `Đã thay đổi quyền tài khoản thành [${role.toUpperCase()}]`,
-            data: { id, role }
-        });
-    } catch (err) {
-        return res.status(500).json({ success: false, message: err.message });
-    }
+router.put('/users/:id/role', async (req,res) => {
+    const role = req.body?.role;
+    if (!['user','admin'].includes(role)) return res.status(400).json({ success:false, code:'INVALID_ROLE', message:'Vai trò không hợp lệ.' });
+    return mutate(req,res,'role',req.params.id,role);
 });
-
-/**
- * 5. DELETE /api/admin/users/:id
- * Xóa tài khoản người dùng và dọn dẹp các bản ghi liên quan
- */
-router.delete('/users/:id', async (req, res) => {
+router.delete('/users/:id', async (req,res) => {
+    const client = mutationClient(res); if (!client) return;
+    if (!validId(req.params.id)) return res.status(400).json({ success:false, code:'INVALID_USER_ID', message:'Mã tài khoản không hợp lệ.' });
+    if (!isRootAdmin(req.user)) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Chỉ Root Admin mới được xóa tài khoản.' });
+    if (req.params.id === req.user.id) return res.status(400).json({ success:false, code:'SELF_PROTECTION', message:'Không thể xóa tài khoản đang đăng nhập.' });
+    const confirmEmail = String(req.body?.confirm_email || '').trim().toLowerCase();
+    if (!confirmEmail) return res.status(400).json({ success:false, code:'CONFIRMATION_REQUIRED', message:'Cần xác nhận email tài khoản để xóa.' });
     try {
-        const { id } = req.params;
-
-        if (id === 'admin-00000000-0000-0000-0000-000000000001' || req.user.id === id) {
-            return res.status(400).json({ success: false, message: 'Không thể xóa tài khoản Quản trị viên hiện tại!' });
+        const { data, error } = await client.rpc('admin_delete_user', { p_actor_id:req.user.id,
+            p_target_id:req.params.id, p_confirm_email:confirmEmail, p_root_emails:Array.from(configuredRootAdminEmails()),
+            p_actor_session_version:Number(req.user.auth_session_version) });
+        if (error) {
+            if (/admin_migration_required|function .* does not exist|schema cache/i.test(String(error.message))) return res.status(503).json({ success:false, code:'ADMIN_MIGRATION_REQUIRED', message:'Thao tác quản trị cần migration quản trị.' });
+            if (/stale_actor_session/i.test(String(error.message))) return res.status(401).json({ success:false, code:'SESSION_REVOKED', message:'Phiên quản trị đã hết hiệu lực. Vui lòng đăng nhập lại.' });
+            if (/root_admin_required/i.test(String(error.message))) return res.status(403).json({ success:false, code:'ROOT_ADMIN_REQUIRED', message:'Chỉ Root Admin mới được xóa tài khoản.' });
+            if (/target_not_found/i.test(String(error.message))) return res.status(404).json({ success:false, code:'USER_NOT_FOUND', message:'Không tìm thấy tài khoản.' });
+            if (/confirmation_mismatch|root_protection|self_protection/i.test(String(error.message))) return res.status(400).json({ success:false, code:'ADMIN_DELETE_REJECTED', message:'Xác nhận không hợp lệ hoặc tài khoản được bảo vệ.' });
+            throw error;
         }
-
-        // 1. Xóa Supabase
-        if (isSupabaseConfigured()) {
-            try {
-                await supabase.from('transactions').delete().eq('user_id', id);
-                await supabase.from('wallets').delete().eq('user_id', id);
-                await supabase.from('users').delete().eq('id', id);
-            } catch (_) {}
-        }
-
-        // 2. Xóa Local Store
-        localStore.deleteUser(id);
-
-        return res.json({
-            success: true,
-            message: 'Đã xóa người dùng và toàn bộ dữ liệu giao dịch liên quan thành công'
-        });
-    } catch (err) {
-        return res.status(500).json({ success: false, message: err.message });
-    }
+        if (!data?.success) return res.status(400).json({ success:false, code:data?.code || 'ADMIN_DELETE_REJECTED', message:'Không thể xóa tài khoản.' });
+        return res.json({ success:true, message:'Đã xóa tài khoản và dữ liệu liên quan.' });
+    } catch (error) { return failure(res,error,'delete user'); }
 });
 
 module.exports = router;
