@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../services/api_service.dart';
+import '../widgets/finwise_brand_mark.dart';
 import 'login_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
@@ -41,6 +42,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   static const _mutedInk = Color(0xFF65717D);
   static const _paper = Color(0xFFF4F6F7);
   static const _line = Color(0xFFE1E6E9);
+  static const _accent = Color(0xFF4F46E5);
 
   @override
   void initState() {
@@ -213,177 +215,216 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   Widget _buildUsersTable(List<Map<String, dynamic>> users) {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        SingleChildScrollView(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFEDF0F2)),
-            dataRowMinHeight: 52,
-            dataRowMaxHeight: 58,
-            horizontalMargin: 14,
-            columnSpacing: 22,
-            columns: const [
-              DataColumn(label: Text('T\u00e0i kho\u1ea3n')),
-              DataColumn(label: Text('Vai tr\u00f2')),
-              DataColumn(label: Text('Tr\u1ea1ng th\u00e1i')),
-              DataColumn(label: Text('Giao d\u1ecbch')),
-              DataColumn(label: Text('V\u00ed')),
-              DataColumn(label: Text('Thao t\u00e1c')),
-            ],
-            rows: users.map((u) {
-              final role = u['role']?.toString() ?? 'user';
-              final status = u['status']?.toString() ?? 'active';
-              final admin = role == 'admin';
-              final suspended = status == 'suspended';
-              final marker =
-                  u.containsKey('is_root_admin') ||
-                  u.containsKey('isRootAdmin');
-              final root =
-                  u['is_root_admin'] == true ||
-                  u['isRootAdmin'] == true ||
-                  (admin && !marker);
-              final edit = u['can_edit'] == true || u['canEdit'] == true;
-              final suspend =
-                  u['can_suspend'] == true || u['canSuspend'] == true;
-              final changeRole =
-                  u['can_change_role'] == true || u['canChangeRole'] == true;
-              final delete = u['can_delete'] == true || u['canDelete'] == true;
-              return DataRow(
-                cells: [
-                  DataCell(
-                    SizedBox(
-                      width: 250,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            u['full_name']?.toString() ??
-                                'Ng\u01b0\u1eddi D\u00f9ng',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _ink,
-                              fontWeight: FontWeight.w500,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(const Color(0xFFF4F6F7)),
+              dataRowMinHeight: 56,
+              dataRowMaxHeight: 62,
+              horizontalMargin: 16,
+              columnSpacing: 28,
+              headingTextStyle: const TextStyle(
+                color: _mutedInk,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              columns: const [
+                DataColumn(label: Text('Tài khoản')),
+                DataColumn(label: Text('Vai trò')),
+                DataColumn(label: Text('Trạng thái')),
+                DataColumn(label: Text('Giao dịch')),
+                DataColumn(label: Text('Ví')),
+                DataColumn(
+                  label: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text('Thao tác'),
+                  ),
+                ),
+              ],
+              rows: users.map((u) {
+                final role = u['role']?.toString() ?? 'user';
+                final status = u['status']?.toString() ?? 'active';
+                final admin = role == 'admin';
+                final suspended = status == 'suspended';
+                final marker =
+                    u.containsKey('is_root_admin') ||
+                    u.containsKey('isRootAdmin');
+                final root =
+                    u['is_root_admin'] == true ||
+                    u['isRootAdmin'] == true ||
+                    (admin && !marker);
+                final edit = u['can_edit'] == true || u['canEdit'] == true;
+                final suspend =
+                    u['can_suspend'] == true || u['canSuspend'] == true;
+                final changeRole =
+                    u['can_change_role'] == true || u['canChangeRole'] == true;
+                final delete =
+                    u['can_delete'] == true || u['canDelete'] == true;
+                return DataRow(
+                  cells: [
+                    DataCell(
+                      SizedBox(
+                        width: 260,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              u['full_name']?.toString() ?? 'Người dùng',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _ink,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                          Text(
-                            u['email']?.toString() ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _mutedInk,
-                              fontSize: 12,
+                            Text(
+                              u['email']?.toString() ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _mutedInk,
+                                fontSize: 13,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  DataCell(
-                    Text(
-                      root
-                          ? 'Root admin'
-                          : admin
-                          ? 'Admin'
-                          : 'User',
-                      style: TextStyle(
-                        color: root ? const Color(0xFF4F46E5) : _ink,
+                    DataCell(
+                      _textChip(
+                        root
+                            ? 'Root admin'
+                            : admin
+                            ? 'Admin'
+                            : 'User',
+                        root ? _accent : _ink,
                       ),
                     ),
-                  ),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: suspended
-                                ? const Color(0xFFB84A4A)
-                                : const Color(0xFF27805B),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          suspended
-                              ? 'T\u1ea1m kh\u00f3a'
-                              : 'Ho\u1ea1t \u0111\u1ed9ng',
-                          style: TextStyle(
-                            color: suspended
-                                ? const Color(0xFF9D3C3C)
-                                : const Color(0xFF276B4F),
-                          ),
-                        ),
-                      ],
+                    DataCell(
+                      _statusChip(
+                        suspended ? 'Tạm khóa' : 'Hoạt động',
+                        suspended,
+                      ),
                     ),
-                  ),
-                  DataCell(Text('${u['transaction_count'] ?? 0}')),
-                  DataCell(Text('${u['wallet_count'] ?? 0}')),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (edit || suspend || changeRole)
-                          PopupMenuButton<String>(
-                            tooltip: 'Thao t\u00e1c t\u00e0i kho\u1ea3n',
-                            onSelected: (v) {
-                              if (v == 'edit') _showUserForm(user: u);
-                              if (v == 'status') _toggleUserStatus(u);
-                              if (v == 'role') _toggleUserRole(u);
-                            },
-                            itemBuilder: (_) => [
-                              if (edit)
-                                const PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('S\u1eeda th\u00f4ng tin'),
+                    DataCell(
+                      Text(
+                        '${u['transaction_count'] ?? 0}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    DataCell(
+                      Text(
+                        '${u['wallet_count'] ?? 0}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    DataCell(
+                      SizedBox(
+                        width: 120,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (edit || suspend || changeRole)
+                                PopupMenuButton<String>(
+                                  tooltip: 'Thao tác tài khoản',
+                                  onSelected: (v) {
+                                    if (v == 'edit') _showUserForm(user: u);
+                                    if (v == 'status') _toggleUserStatus(u);
+                                    if (v == 'role') _toggleUserRole(u);
+                                  },
+                                  itemBuilder: (_) => [
+                                    if (edit)
+                                      const PopupMenuItem(
+                                        value: 'edit',
+                                        child: Text('Sửa thông tin'),
+                                      ),
+                                    if (suspend)
+                                      PopupMenuItem(
+                                        value: 'status',
+                                        child: Text(
+                                          suspended
+                                              ? 'Mở khóa tài khoản'
+                                              : 'Khóa tài khoản',
+                                        ),
+                                      ),
+                                    if (changeRole)
+                                      PopupMenuItem(
+                                        value: 'role',
+                                        child: Text(
+                                          admin
+                                              ? 'Hạ quyền xuống User'
+                                              : 'Cấp quyền Admin',
+                                        ),
+                                      ),
+                                  ],
+                                  icon: const Icon(Icons.more_horiz, size: 20),
                                 ),
-                              if (suspend)
-                                PopupMenuItem(
-                                  value: 'status',
-                                  child: Text(
-                                    suspended
-                                        ? 'M\u1edf kh\u00f3a t\u00e0i kho\u1ea3n'
-                                        : 'Kh\u00f3a t\u00e0i kho\u1ea3n',
-                                  ),
-                                ),
-                              if (changeRole)
-                                PopupMenuItem(
-                                  value: 'role',
-                                  child: Text(
-                                    admin
-                                        ? 'H\u1ea1 quy\u1ec1n xu\u1ed1ng User'
-                                        : 'C\u1ea5p quy\u1ec1n Admin',
+                              if (delete)
+                                IconButton(
+                                  tooltip: 'Xóa tài khoản',
+                                  onPressed: () => _deleteUser(u),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                    color: Color(0xFF9D3C3C),
                                   ),
                                 ),
                             ],
-                            icon: const Icon(Icons.more_horiz, size: 20),
                           ),
-                        if (delete)
-                          IconButton(
-                            tooltip: 'X\u00f3a t\u00e0i kho\u1ea3n',
-                            onPressed: () => _deleteUser(u),
-                            icon: const Icon(
-                              Icons.delete_outline,
-                              size: 18,
-                              color: Color(0xFF9D3C3C),
-                            ),
-                          ),
-                      ],
+                        ),
+                      ),
                     ),
-                  ),
-                ],
-              );
-            }).toList(),
+                  ],
+                );
+              }).toList(),
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
+
+  Widget _textChip(String label, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF4F6F7),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w500),
+    ),
+  );
+
+  Widget _statusChip(String label, bool suspended) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 7,
+        height: 7,
+        decoration: BoxDecoration(
+          color: suspended ? const Color(0xFFB84A4A) : const Color(0xFF27805B),
+          shape: BoxShape.circle,
+        ),
+      ),
+      const SizedBox(width: 8),
+      Text(
+        label,
+        style: TextStyle(
+          color: suspended ? const Color(0xFF9D3C3C) : const Color(0xFF276B4F),
+          fontSize: 14,
+        ),
+      ),
+    ],
+  );
 
   Future<void> _showUserForm({Map<String, dynamic>? user}) async {
     final edit = user != null;
@@ -755,6 +796,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               )
             : TabBarView(
                 controller: _tabController,
+                physics: desktop ? const NeverScrollableScrollPhysics() : null,
                 children: [
                   _buildOverviewTab(),
                   _buildUsersTab(),
@@ -769,9 +811,26 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   backgroundColor: Colors.white,
                   foregroundColor: _ink,
                   elevation: 0,
-                  title: const Text(
-                    'FinWise',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
+                  title: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FinWiseBrandMark(
+                        size: 26,
+                        fallbackIcon: Icons.account_balance_wallet_outlined,
+                      ),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'FinWise Admin',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   actions: [
                     IconButton(
@@ -791,18 +850,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     unselectedLabelColor: _mutedInk,
                     indicatorColor: const Color(0xFF4F46E5),
                     tabs: const [
-                      Tab(
-                        icon: Icon(Icons.speed, size: 19),
-                        text: 'T\u1ed5ng quan & AI',
-                      ),
-                      Tab(
-                        icon: Icon(Icons.people_alt_outlined, size: 19),
-                        text: 'Ng\u01b0\u1eddi D\u00f9ng',
-                      ),
-                      Tab(
-                        icon: Icon(Icons.settings_suggest_outlined, size: 19),
-                        text: 'H\u1ea1 t\u1ea7ng',
-                      ),
+                      Tab(text: 'Tổng quan'),
+                      Tab(text: 'Người dùng'),
+                      Tab(text: 'Hệ thống'),
                     ],
                   ),
                 ),
@@ -820,17 +870,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               padding: EdgeInsets.fromLTRB(24, 28, 20, 28),
                               child: Row(
                                 children: [
-                                  Icon(
-                                    Icons.account_balance_wallet_outlined,
-                                    color: Color(0xFF4F46E5),
+                                  FinWiseBrandMark(
+                                    size: 28,
+                                    fallbackIcon:
+                                        Icons.account_balance_wallet_outlined,
                                   ),
-                                  SizedBox(width: 10),
-                                  Text(
-                                    'FinWise',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w600,
-                                      color: _ink,
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'FinWise Admin',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        color: _ink,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -839,9 +894,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             const Padding(
                               padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
                               child: Text(
-                                'Qu\u1ea3n tr\u1ecb',
+                                'Quản trị',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 14,
                                   color: _mutedInk,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -892,12 +947,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               children: [
                                 Text(
                                   _tabController.index == 0
-                                      ? 'T\u1ed5ng quan & AI'
+                                      ? 'Admin · Tổng quan'
                                       : _tabController.index == 1
-                                      ? 'Ng\u01b0\u1eddi D\u00f9ng'
-                                      : 'H\u1ea1 t\u1ea7ng',
+                                      ? 'Admin · Người dùng'
+                                      : 'Admin · Hệ thống',
                                   style: const TextStyle(
-                                    fontSize: 18,
+                                    fontSize: 27,
                                     fontWeight: FontWeight.w500,
                                     color: _ink,
                                   ),
@@ -972,7 +1027,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ? 'Tất cả thời gian'
         : '${DateFormat('dd/MM/yyyy').format(_periodStart(_overviewDate))} – '
               '${DateFormat('dd/MM/yyyy').format(_periodEnd(_overviewDate))}';
-    final canGoForward = _overviewPeriod != 'all' &&
+    final canGoForward =
+        _overviewPeriod != 'all' &&
         _periodStart(_overviewDate).isBefore(_periodStart(_vietnamToday()));
 
     final aiStatusKnown = ai['status'] == 'online' || ai['status'] == 'offline';
@@ -981,15 +1037,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return RefreshIndicator(
       onRefresh: _loadOverview,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1320),
+            constraints: const BoxConstraints(maxWidth: 1440),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     border: Border.all(color: _line),
@@ -1024,10 +1083,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             icon: const Icon(Icons.chevron_left),
                           ),
                           Text(
-                              _overviewPeriod == 'all'
-                                  ? rangeLabel
-                                  : '$periodLabel · $rangeLabel',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            _overviewPeriod == 'all'
+                                ? rangeLabel
+                                : '$periodLabel · $rangeLabel',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           IconButton(
                             tooltip: 'Kỳ tiếp theo',
                             visualDensity: VisualDensity.compact,
@@ -1052,82 +1115,79 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     ),
                     child: Row(
                       children: [
-                        const Expanded(child: Text('Không thể tải số liệu kỳ này')),
-                        TextButton(onPressed: _loadOverview, child: const Text('Thử lại')),
+                        const Expanded(
+                          child: Text('Không thể tải số liệu kỳ này'),
+                        ),
+                        TextButton(
+                          onPressed: _loadOverview,
+                          child: const Text('Thử lại'),
+                        ),
                       ],
                     ),
                   ),
-                // KPI Grid Cards
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildKpiCard(
-                        title: 'Tổng Người Dùng',
-                        value: '$totalUsers',
-                        subtext: '$activeUsers đang hoạt động',
-                        icon: Icons.people,
-                        color: const Color(0xFF4F46E5),
-                        bgTint: const Color(0xFFEEF2FF),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildKpiCard(
-                        title: _overviewPeriod == 'all'
-                            ? 'Tổng Giao Dịch'
-                            : 'Giao Dịch · $periodLabel',
-                        value: _overviewLoading || _overviewLoadFailed
-                            ? '—'
-                            : '$totalTxs',
-                        subtext: rangeLabel,
-                        icon: Icons.receipt_long,
-                        color: const Color(0xFF0EA5E9),
-                        bgTint: const Color(0xFFE0F2FE),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildKpiCard(
-                        title: _overviewPeriod == 'all'
-                            ? 'Tổng Dòng Tiền'
-                            : 'Dòng Tiền · $periodLabel',
-                        value: _overviewLoading || _overviewLoadFailed
-                            ? '—'
-                            : currencyFormat.format(totalVolume),
-                        subtext: rangeLabel,
-                        icon: Icons.account_balance_wallet,
-                        color: const Color(0xFF10B981),
-                        bgTint: const Color(0xFFECFDF5),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildKpiCard(
-                        title: 'Trạng Thái AI',
-                        value: isAiOnline
-                            ? 'Hoạt Động'
-                            : aiStatusKnown
-                            ? 'Chưa sẵn sàng'
-                            : 'Chưa có dữ liệu',
-                        subtext: isAiOnline
-                            ? '${ai['latency_ms'] ?? '—'}ms - Sẵn sàng'
-                            : aiStatusKnown
-                            ? 'Dịch vụ đang ngoại tuyến'
-                            : 'Trạng thái chưa được báo cáo',
-                        icon: Icons.psychology,
-                        color: isAiOnline
-                            ? const Color(0xFF10B981)
-                            : const Color(0xFFF59E0B),
-                        bgTint: isAiOnline
-                            ? const Color(0xFFECFDF5)
-                            : const Color(0xFFFFFBEB),
-                      ),
-                    ),
-                  ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = constraints.maxWidth >= 1040
+                        ? 4
+                        : constraints.maxWidth >= 620
+                        ? 2
+                        : 1;
+                    final gap = 12.0;
+                    final cardWidth =
+                        (constraints.maxWidth - gap * (columns - 1)) / columns;
+                    return Wrap(
+                      spacing: gap,
+                      runSpacing: gap,
+                      children: [
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildKpiCard(
+                            title: 'Người dùng',
+                            value: '$totalUsers',
+                            subtext: '$activeUsers đang hoạt động',
+                          ),
+                        ),
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildKpiCard(
+                            title: _overviewPeriod == 'all'
+                                ? 'Giao dịch'
+                                : 'Giao dịch · $periodLabel',
+                            value: _overviewLoading || _overviewLoadFailed
+                                ? '—'
+                                : '$totalTxs',
+                            subtext: rangeLabel,
+                          ),
+                        ),
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildKpiCard(
+                            title: _overviewPeriod == 'all'
+                                ? 'Tổng dòng tiền'
+                                : 'Dòng tiền · $periodLabel',
+                            value: _overviewLoading || _overviewLoadFailed
+                                ? '—'
+                                : currencyFormat.format(totalVolume),
+                            subtext: 'Thu + chi · $rangeLabel',
+                          ),
+                        ),
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildKpiCard(
+                            title: 'Dịch vụ AI',
+                            value: isAiOnline
+                                ? 'Hoạt động'
+                                : aiStatusKnown
+                                ? 'Ngoại tuyến'
+                                : 'Chưa rõ',
+                            subtext: isAiOnline
+                                ? 'Độ trễ ${ai['latency_ms'] ?? '—'} ms'
+                                : 'Trạng thái do dịch vụ báo cáo',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 24),
@@ -1144,8 +1204,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           const Row(
                             children: [
@@ -1156,7 +1218,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               ),
                               SizedBox(width: 8),
                               Text(
-                                'Giám Sát AI Microservices',
+                                'Giám sát dịch vụ AI',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
@@ -1196,13 +1258,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                 const SizedBox(width: 6),
                                 Text(
                                   isAiOnline
-                                      ? 'ONLINE'
+                                      ? 'Đang hoạt động'
                                       : aiStatusKnown
-                                      ? 'OFFLINE'
-                                      : 'UNKNOWN',
+                                      ? 'Ngoại tuyến'
+                                      : 'Chưa có dữ liệu',
                                   style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
                                     color: isAiOnline
                                         ? const Color(0xFF276B4F)
                                         : const Color(0xFF8A6415),
@@ -1215,8 +1277,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ),
                       const SizedBox(height: 14),
                       _buildAiModuleRow(
-                        name: 'PhoBERT NLP Classifier',
-                        desc: 'Nhận diện & tự động gán nhãn 10 danh mục chi tiêu tiếng Việt',
+                        name: 'PhoBERT · phân loại chi tiêu',
+                        desc: 'Gợi ý danh mục cho giao dịch',
                         isLoaded: ai['phobert_loaded'] == true
                             ? true
                             : ai['phobert_loaded'] == false
@@ -1225,8 +1287,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ),
                       const Divider(color: _line, height: 16),
                       _buildAiModuleRow(
-                        name: 'Time-Series LSTM Forecaster',
-                        desc: 'Dự báo xu hướng tài chính & dòng tiền 7 ngày tiếp theo',
+                        name: 'LSTM · dự báo dòng tiền',
+                        desc: 'Chu kỳ dự báo 7 ngày',
                         isLoaded: ai['lstm_loaded'] == true
                             ? true
                             : ai['lstm_loaded'] == false
@@ -1235,9 +1297,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ),
                       const Divider(color: _line, height: 16),
                       _buildAiModuleRow(
-                        name: 'EasyOCR Receipt Scanner',
-                        desc:
-                            'Trích xuất song ngữ Việt - Anh hóa đơn thanh toán',
+                        name: 'EasyOCR · đọc hóa đơn',
+                        desc: 'Nhận dạng tiếng Việt và tiếng Anh',
                         isLoaded: ai['ocr_loaded'] == true
                             ? true
                             : ai['ocr_loaded'] == false
@@ -1246,27 +1307,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       ),
                       const SizedBox(height: 12),
                       Container(
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF4F6F7),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            Text(
-                              'Thiết bị thực thi: ${ai['device'] ?? 'Chưa có dữ liệu'} (${ai['gpu_name'] ?? 'GPU chưa báo cáo'})',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: _mutedInk,
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 560),
+                              child: Text(
+                                'Thiết bị: ${ai['device'] ?? 'Chưa có dữ liệu'}${ai['gpu_name'] == null ? '' : ' · ${ai['gpu_name']}'}',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: _mutedInk,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             Text(
-                              'Độ trễ: ${ai['latency_ms'] ?? '—'}ms',
+                              'Thời gian phản hồi: ${ai['latency_ms'] ?? '—'} ms',
                               style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF276B4F),
-                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: _ink,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],
@@ -1280,20 +1348,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
                 Text(
                   _overviewPeriod == 'all'
-                      ? 'Phân Bổ Chi Tiêu Toàn Hệ Thống'
-                      : 'Phân Bổ Chi Tiêu · $periodLabel',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Color(0xFF1E293B),
+                      ? 'Phân bổ chi tiêu'
+                      : 'Phân bổ chi tiêu · $periodLabel',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 20,
+                    color: _ink,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _overviewPeriod == 'all'
-                      ? 'Dữ liệu tổng hợp từ các giao dịch của người dùng'
-                      : 'Dữ liệu giao dịch trong $rangeLabel',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  'Tỷ trọng theo danh mục · $rangeLabel',
+                  style: const TextStyle(fontSize: 14, color: _mutedInk),
                 ),
                 const SizedBox(height: 12),
 
@@ -1311,39 +1377,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             : _overviewLoadFailed
                             ? 'Không thể tải phân bổ giao dịch kỳ này'
                             : 'Chưa có giao dịch chi tiêu nào để phân tích',
-                        style: const TextStyle(color: Color(0xFF94A3B8)),
+                        style: const TextStyle(color: _mutedInk, fontSize: 14),
                       ),
                     ),
                   )
                 else
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+                      border: Border.all(color: _line),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
                       children: categories.map((cat) {
-                        final colorHex =
-                            (cat['color'] as String?)?.replaceFirst('#', '') ??
-                            '6366F1';
-                        final color = Color(
-                          int.parse('FF$colorHex', radix: 16),
-                        );
                         final percent =
                             (cat['percent'] as num?)?.toDouble() ?? 0.0;
                         final amount =
                             (cat['amount'] as num?)?.toDouble() ?? 0.0;
 
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.only(bottom: 20),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1351,50 +1405,58 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 5,
-                                        backgroundColor: color,
+                                  Expanded(
+                                    child: Text(
+                                      cat['name']?.toString() ?? '',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                        color: _ink,
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        cat['name'] ?? '',
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: Color(0xFF334155),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        '(${cat['count']} GD)',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                   Text(
                                     currencyFormat.format(amount),
                                     style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1E293B),
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w500,
+                                      color: _ink,
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${cat['count'] ?? 0} giao dịch',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: _mutedInk,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${percent.toStringAsFixed(1)}%',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: _mutedInk,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
                               LinearProgressIndicator(
-                                value: percent / 100,
+                                value: (percent / 100).clamp(0.0, 1.0),
                                 backgroundColor: const Color(0xFFF1F5F9),
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  color,
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                  _accent,
                                 ),
                                 borderRadius: BorderRadius.circular(6),
-                                minHeight: 6,
+                                minHeight: 8,
                               ),
                             ],
                           ),
@@ -1414,62 +1476,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     required String title,
     required String value,
     required String subtext,
-    required IconData icon,
-    required Color color,
-    required Color bgTint,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: _line),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: bgTint,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: color, size: 18),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+          Text(title, style: const TextStyle(fontSize: 14, color: _mutedInk)),
+          const SizedBox(height: 12),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E293B),
+              fontSize: 30,
+              fontWeight: FontWeight.w500,
+              color: _ink,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             subtext,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, color: _mutedInk),
           ),
         ],
       ),
@@ -1507,7 +1542,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 style: const TextStyle(
                   color: _ink,
                   fontWeight: FontWeight.w500,
-                  fontSize: 13,
+                  fontSize: 15,
                 ),
               ),
               const SizedBox(height: 2),
@@ -1517,7 +1552,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     : isLoaded == false
                     ? 'Chưa tải'
                     : 'Chưa có dữ liệu'}',
-                style: const TextStyle(color: _mutedInk, fontSize: 12),
+                style: const TextStyle(color: _mutedInk, fontSize: 14),
               ),
             ],
           ),
@@ -1530,190 +1565,232 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // TAB 2: QUẢN LÝ NGƯỜI DÙNG (USERS)
   // ==========================================
   Widget _buildUsersTab() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-          child: LayoutBuilder(
-            builder: (context, constraints) => Wrap(
-              spacing: 12,
-              runSpacing: 10,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                SizedBox(
-                  width: constraints.maxWidth > 700
-                      ? 300
-                      : constraints.maxWidth,
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (value) {
-                      setState(() {
-                        _searchQuery = value;
-                        _currentPage = 1;
-                      });
-                      _searchDebounce?.cancel();
-                      _searchDebounce = Timer(
-                        const Duration(milliseconds: 350),
-                        _loadUsers,
-                      );
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'T\u00ecm theo t\u00ean ho\u1eb7c email',
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      isDense: true,
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: _line),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: _line),
-                      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1440),
+              child: RefreshIndicator(
+                onRefresh: _loadUsers,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: _line),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                  ),
-                ),
-                _filterDropdown(
-                  'Vai tr\u00f2',
-                  _roleFilter,
-                  const {
-                    'all': 'T\u1ea5t c\u1ea3 vai tr\u00f2',
-                    'admin': 'Admin',
-                    'user': 'User',
-                  },
-                  (v) {
-                    setState(() {
-                      _roleFilter = v;
-                      _currentPage = 1;
-                    });
-                    _loadUsers();
-                  },
-                  width: 170,
-                ),
-                _filterDropdown(
-                  'Tr\u1ea1ng th\u00e1i',
-                  _statusFilter,
-                  const {
-                    'all': 'T\u1ea5t c\u1ea3 tr\u1ea1ng th\u00e1i',
-                    'active': 'Ho\u1ea1t \u0111\u1ed9ng',
-                    'suspended': 'T\u1ea1m kh\u00f3a',
-                  },
-                  (v) {
-                    setState(() {
-                      _statusFilter = v;
-                      _currentPage = 1;
-                    });
-                    _loadUsers();
-                  },
-                  width: 185,
-                ),
-                FilledButton.icon(
-                  onPressed: () => _showUserForm(),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Th\u00eam ng\u01b0\u1eddi d\u00f9ng'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF4F46E5),
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _loadUsers,
-            child: _usersLoadFailed
-                ? ListView(
-                    children: [
-                      SizedBox(
-                        height: 220,
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text(
-                                'Kh\u00f4ng th\u1ec3 t\u1ea3i danh s\u00e1ch t\u00e0i kho\u1ea3n',
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: LayoutBuilder(
+                            builder: (context, inner) => Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                SizedBox(
+                                  width: inner.maxWidth >= 860
+                                      ? inner.maxWidth - 555
+                                      : inner.maxWidth,
+                                  child: TextField(
+                                    controller: _searchController,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _searchQuery = value;
+                                        _currentPage = 1;
+                                      });
+                                      _searchDebounce?.cancel();
+                                      _searchDebounce = Timer(
+                                        const Duration(milliseconds: 350),
+                                        _loadUsers,
+                                      );
+                                    },
+                                    decoration: InputDecoration(
+                                      hintText: 'Tìm theo tên hoặc email',
+                                      labelText: 'Tìm tài khoản',
+                                      prefixIcon: const Icon(
+                                        Icons.search,
+                                        size: 20,
+                                      ),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                          color: _line,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(
+                                          color: _line,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                _filterDropdown(
+                                  'Vai trò',
+                                  _roleFilter,
+                                  const {
+                                    'all': 'Tất cả vai trò',
+                                    'admin': 'Admin',
+                                    'user': 'User',
+                                  },
+                                  (v) {
+                                    setState(() {
+                                      _roleFilter = v;
+                                      _currentPage = 1;
+                                    });
+                                    _loadUsers();
+                                  },
+                                  width: 150,
+                                ),
+                                _filterDropdown(
+                                  'Trạng thái',
+                                  _statusFilter,
+                                  const {
+                                    'all': 'Tất cả trạng thái',
+                                    'active': 'Hoạt động',
+                                    'suspended': 'Tạm khóa',
+                                  },
+                                  (v) {
+                                    setState(() {
+                                      _statusFilter = v;
+                                      _currentPage = 1;
+                                    });
+                                    _loadUsers();
+                                  },
+                                  width: 185,
+                                ),
+                                SizedBox(
+                                  width: 184,
+                                  child: FilledButton.icon(
+                                    onPressed: () => _showUserForm(),
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: const Text('Thêm người dùng'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: _accent,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1, color: _line),
+                        if (_usersLoadFailed)
+                          SizedBox(
+                            height: 144,
+                            child: Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    'Không thể tải danh sách tài khoản',
+                                  ),
+                                  TextButton(
+                                    onPressed: _loadUsers,
+                                    child: const Text('Thử lại'),
+                                  ),
+                                ],
                               ),
-                              TextButton(
-                                onPressed: _loadUsers,
-                                child: const Text('Th\u1eed l\u1ea1i'),
+                            ),
+                          )
+                        else if (_filteredUsers.isEmpty)
+                          SizedBox(
+                            height: 144,
+                            child: Center(
+                              child: Text(
+                                _users.isEmpty
+                                    ? 'Chưa có tài khoản người dùng'
+                                    : 'Không có tài khoản khớp bộ lọc',
+                                style: const TextStyle(
+                                  color: _mutedInk,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          )
+                        else if (constraints.maxWidth >= 720)
+                          _buildUsersTable(_filteredUsers)
+                        else
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              children: [
+                                for (
+                                  var i = 0;
+                                  i < _filteredUsers.length;
+                                  i++
+                                ) ...[
+                                  if (i > 0) const SizedBox(height: 8),
+                                  _buildCompactUser(_filteredUsers[i]),
+                                ],
+                              ],
+                            ),
+                          ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 8,
+                          ),
+                          decoration: const BoxDecoration(
+                            border: Border(top: BorderSide(color: _line)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Text(
+                                '$_totalUsers tài khoản  ·  Trang $_currentPage/${((_totalUsers - 1) ~/ _perPage + 1).clamp(1, 99999)}',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: _mutedInk,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                tooltip: 'Trang trước',
+                                onPressed: _currentPage > 1
+                                    ? () {
+                                        setState(() => _currentPage--);
+                                        _loadUsers();
+                                      }
+                                    : null,
+                                icon: const Icon(Icons.chevron_left),
+                              ),
+                              IconButton(
+                                tooltip: 'Trang sau',
+                                onPressed: _currentPage * _perPage < _totalUsers
+                                    ? () {
+                                        setState(() => _currentPage++);
+                                        _loadUsers();
+                                      }
+                                    : null,
+                                icon: const Icon(Icons.chevron_right),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                    ],
-                  )
-                : _filteredUsers.isEmpty
-                ? ListView(
-                    children: [
-                      SizedBox(
-                        height: 220,
-                        child: Center(
-                          child: Text(
-                            _users.isEmpty
-                                ? 'Ch\u01b0a c\u00f3 t\u00e0i kho\u1ea3n ng\u01b0\u1eddi d\u00f9ng'
-                                : 'Kh\u00f4ng c\u00f3 t\u00e0i kho\u1ea3n kh\u1edbp b\u1ed9 l\u1ecdc',
-                            style: const TextStyle(color: _mutedInk),
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) =>
-                        constraints.maxWidth >= 720
-                        ? _buildUsersTable(_filteredUsers)
-                        : ListView.separated(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: _filteredUsers.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (context, index) =>
-                                _buildCompactUser(_filteredUsers[index]),
-                          ),
+                      ],
+                    ),
                   ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: _line)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Text(
-                '$_totalUsers t\u00e0i kho\u1ea3n  \u00b7  Trang $_currentPage/${((_totalUsers - 1) ~/ _perPage + 1).clamp(1, 99999)}',
+                ),
               ),
-              const SizedBox(width: 12),
-              IconButton(
-                tooltip: 'Trang tr\u01b0\u1edbc',
-                onPressed: _currentPage > 1
-                    ? () {
-                        setState(() => _currentPage--);
-                        _loadUsers();
-                      }
-                    : null,
-                icon: const Icon(Icons.chevron_left),
-              ),
-              IconButton(
-                tooltip: 'Trang sau',
-                onPressed: _currentPage * _perPage < _totalUsers
-                    ? () {
-                        setState(() => _currentPage++);
-                        _loadUsers();
-                      }
-                    : null,
-                icon: const Icon(Icons.chevron_right),
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -1722,6 +1799,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final status = user['status']?.toString() ?? 'active';
     final admin = role == 'admin';
     final suspended = status == 'suspended';
+    final hasRootMarker =
+        user.containsKey('is_root_admin') || user.containsKey('isRootAdmin');
+    final root =
+        user['is_root_admin'] == true ||
+        user['isRootAdmin'] == true ||
+        (admin && !hasRootMarker);
     final edit = user['can_edit'] == true || user['canEdit'] == true;
     final suspend = user['can_suspend'] == true || user['canSuspend'] == true;
     final changeRole =
@@ -1800,37 +1883,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ],
           ),
           const SizedBox(height: 10),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text(
-                admin ? 'Admin' : 'User',
-                style: const TextStyle(color: _ink),
+              _textChip(
+                root
+                    ? 'Root admin'
+                    : admin
+                    ? 'Admin'
+                    : 'User',
+                root ? _accent : _ink,
               ),
-              const SizedBox(width: 16),
-              Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: suspended
-                      ? const Color(0xFFB84A4A)
-                      : const Color(0xFF27805B),
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 6),
+              _statusChip(suspended ? 'Tạm khóa' : 'Hoạt động', suspended),
               Text(
-                suspended ? 'T\u1ea1m kh\u00f3a' : 'Ho\u1ea1t \u0111\u1ed9ng',
-                style: TextStyle(
-                  color: suspended
-                      ? const Color(0xFF9D3C3C)
-                      : const Color(0xFF276B4F),
-                  fontSize: 13,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${user['transaction_count'] ?? 0} giao d\u1ecbch  \u00b7  ${user['wallet_count'] ?? 0} v\u00ed',
-                style: const TextStyle(color: _mutedInk, fontSize: 12),
+                '${user['transaction_count'] ?? 0} giao dịch  ·  ${user['wallet_count'] ?? 0} ví',
+                style: const TextStyle(color: _mutedInk, fontSize: 14),
               ),
             ],
           ),
@@ -1843,74 +1912,99 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // TAB 3: HẠ TẦNG & CẤU HÌNH HỆ THỐNG
   // ==========================================
   Widget _buildSystemTab() {
+    final ai = _overview?['ai_service'] ?? {};
+    bool? loaded(String key) => ai[key] == true
+        ? true
+        : ai[key] == false
+        ? false
+        : null;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildInfoSection(
-            title: 'Hạ Tầng Backend & Cloud',
-            items: [
-              _buildInfoRow(
-                'API Gateway',
-                'Node.js Express (Render Cloud 24/7)',
-              ),
-              _buildInfoRow('Backend URL', ApiService().baseUrl),
-              _buildInfoRow(
-                'Cơ sở dữ liệu',
-                'Supabase PostgreSQL Cloud (Tokyo, AWS)',
-              ),
-              _buildInfoRow(
-                'Xác thực bảo mật',
-                'Bcrypt Hashing + JWT Role-Based Access Control',
-              ),
-            ],
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1440),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final availableWidth = constraints.maxWidth;
+              final wide = availableWidth >= 1000;
+              final gap = 16.0;
+              final primaryWidth = wide
+                  ? (availableWidth - gap) * .66
+                  : availableWidth;
+              final sideWidth = wide
+                  ? (availableWidth - gap) - primaryWidth
+                  : availableWidth;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  SizedBox(
+                    width: primaryWidth,
+                    child: _buildInfoSection(
+                      title: 'Dịch vụ AI',
+                      items: [
+                        _buildAiModuleRow(
+                          name: 'PhoBERT · phân loại chi tiêu',
+                          desc: 'Trạng thái mô-đun do dịch vụ báo cáo',
+                          isLoaded: loaded('phobert_loaded'),
+                        ),
+                        const Divider(color: _line, height: 24),
+                        _buildAiModuleRow(
+                          name: 'LSTM · dự báo dòng tiền',
+                          desc: 'Chu kỳ dự báo 7 ngày',
+                          isLoaded: loaded('lstm_loaded'),
+                        ),
+                        const Divider(color: _line, height: 24),
+                        _buildAiModuleRow(
+                          name: 'EasyOCR · đọc hóa đơn',
+                          desc: 'Nhận dạng tiếng Việt và tiếng Anh',
+                          isLoaded: loaded('ocr_loaded'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    width: sideWidth,
+                    child: Column(
+                      children: [
+                        _buildInfoSection(
+                          title: 'Kết nối và xác thực',
+                          items: [
+                            _buildInfoRow('API', ApiService().baseUrl),
+                            _buildInfoRow('Máy chủ', 'Node.js / Express'),
+                            _buildInfoRow(
+                              'Cơ sở dữ liệu',
+                              'Supabase / PostgreSQL',
+                            ),
+                            _buildInfoRow('Đăng nhập', 'Bcrypt và JWT'),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _buildInfoSection(
+                          title: 'Quyền truy cập',
+                          items: [
+                            _buildInfoRow(
+                              'Trang quản trị',
+                              'Tài khoản có role admin',
+                            ),
+                            _buildInfoRow(
+                              'Tài khoản gốc',
+                              'Không thể xóa hoặc tạm khóa',
+                            ),
+                            _buildInfoRow(
+                              'Dữ liệu',
+                              'Số liệu tổng hợp, không gồm giao dịch riêng tư',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 16),
-          _buildInfoSection(
-            title: 'Các Mô Hình AI Được Triển Khai',
-            items: [
-              _buildInfoRow(
-                'Phân loại NLP',
-                'PhoBERT-base (VinAI Research, CC-BY-SA-4.0)',
-              ),
-              _buildInfoRow(
-                'Số danh mục chuẩn',
-                '10 Danh mục tài chính tiêu chuẩn Việt Nam',
-              ),
-              _buildInfoRow(
-                'Dự báo dòng tiền',
-                'Mạng Nơ-ron Hồi quy LSTM (Time-series)',
-              ),
-              _buildInfoRow(
-                'Chu kỳ dự báo',
-                'Dự đoán chi tiêu 7 ngày tiếp theo',
-              ),
-              _buildInfoRow(
-                'Quét Hóa Đơn OCR',
-                'Bilingual EasyOCR vi-en (Clova AI / JaidedAI)',
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildInfoSection(
-            title: 'Quyền Hạn Tài Khoản Quản Trị',
-            items: [
-              _buildInfoRow(
-                'Quản trị gốc',
-                'Được cấu hình riêng ở phía máy chủ',
-              ),
-              _buildInfoRow(
-                'Chính sách riêng tư',
-                'Bảo mật: Không can thiệp chi tiết giao dịch nhạy cảm',
-              ),
-              _buildInfoRow(
-                'Phân quyền truy cập',
-                'Chỉ người dùng role: admin mới xem được bảng này',
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1920,17 +2014,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     required List<Widget> items,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: _line),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1938,12 +2026,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           Text(
             title,
             style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              color: Color(0xFF1E293B),
+              fontWeight: FontWeight.w500,
+              fontSize: 17,
+              color: _ink,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           ...items,
         ],
       ),
@@ -1952,7 +2040,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1960,16 +2048,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             width: 140,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              style: const TextStyle(fontSize: 14, color: _mutedInk),
             ),
           ),
           Expanded(
             child: Text(
               value,
               style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1E293B),
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: _ink,
               ),
             ),
           ),
